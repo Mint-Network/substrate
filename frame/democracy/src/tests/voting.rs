@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,10 +23,7 @@ use super::*;
 fn overvoting_should_fail() {
 	new_test_ext().execute_with(|| {
 		let r = begin_referendum();
-		assert_noop!(
-			Democracy::vote(Origin::signed(1), r, aye(2)),
-			Error::<Test>::InsufficientFunds
-		);
+		assert_noop!(Democracy::vote(Origin::signed(1), r, aye(2)), Error::<Test>::InsufficientFunds);
 	});
 }
 
@@ -105,7 +102,7 @@ fn controversial_voting_should_work() {
 			2,
 			set_balance_proposal_hash_and_note(2),
 			VoteThreshold::SuperMajorityApprove,
-			0,
+			0
 		);
 
 		assert_ok!(Democracy::vote(Origin::signed(1), r, big_aye(1)));
@@ -131,7 +128,7 @@ fn controversial_low_turnout_voting_should_work() {
 			2,
 			set_balance_proposal_hash_and_note(2),
 			VoteThreshold::SuperMajorityApprove,
-			0,
+			0
 		);
 		assert_ok!(Democracy::vote(Origin::signed(5), r, big_nay(5)));
 		assert_ok!(Democracy::vote(Origin::signed(6), r, big_aye(6)));
@@ -155,7 +152,7 @@ fn passing_low_turnout_voting_should_work() {
 			2,
 			set_balance_proposal_hash_and_note(2),
 			VoteThreshold::SuperMajorityApprove,
-			0,
+			0
 		);
 		assert_ok!(Democracy::vote(Origin::signed(4), r, big_aye(4)));
 		assert_ok!(Democracy::vote(Origin::signed(5), r, big_nay(5)));

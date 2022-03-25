@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,9 +19,9 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Codec, Decode, Encode};
-use sp_runtime::ConsensusEngineId;
+use codec::{Encode, Decode, Codec};
 use sp_std::vec::Vec;
+use sp_runtime::ConsensusEngineId;
 
 pub mod digests;
 pub mod inherents;
@@ -46,7 +46,7 @@ pub mod sr25519 {
 
 pub mod ed25519 {
 	mod app_ed25519 {
-		use sp_application_crypto::{app_crypto, ed25519, key_types::AURA};
+		use sp_application_crypto::{app_crypto, key_types::AURA, ed25519};
 		app_crypto!(ed25519, AURA);
 	}
 
@@ -117,4 +117,6 @@ impl sp_consensus::SlotData for SlotDuration {
 	fn slot_duration(&self) -> std::time::Duration {
 		std::time::Duration::from_millis(self.0)
 	}
+
+	const SLOT_KEY: &'static [u8] = b"aura_slot_duration";
 }

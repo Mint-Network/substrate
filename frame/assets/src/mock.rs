@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,15 +20,9 @@
 use super::*;
 use crate as pallet_assets;
 
-use frame_support::{
-	construct_runtime,
-	traits::{ConstU32, ConstU64, GenesisBuild},
-};
 use sp_core::H256;
-use sp_runtime::{
-	testing::Header,
-	traits::{BlakeTwo256, IdentityLookup},
-};
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
+use frame_support::{parameter_types, construct_runtime};
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -45,8 +39,11 @@ construct_runtime!(
 	}
 );
 
+parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+}
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
 	type Origin = Origin;
@@ -59,7 +56,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type Version = ();
 	type PalletInfo = PalletInfo;
@@ -69,19 +66,28 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<2>;
+}
+
+parameter_types! {
+	pub const ExistentialDeposit: u64 = 1;
 }
 
 impl pallet_balances::Config for Test {
 	type Balance = u64;
 	type DustRemoval = ();
 	type Event = Event;
-	type ExistentialDeposit = ConstU64<1>;
+	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = System;
 	type WeightInfo = ();
 	type MaxLocks = ();
-	type MaxReserves = ();
-	type ReserveIdentifier = [u8; 8];
+}
+
+parameter_types! {
+	pub const AssetDeposit: u64 = 1;
+	pub const ApprovalDeposit: u64 = 1;
+	pub const StringLimit: u32 = 50;
+	pub const MetadataDepositBase: u64 = 1;
+	pub const MetadataDepositPerByte: u64 = 1;
 }
 
 impl Config for Test {
@@ -90,18 +96,18 @@ impl Config for Test {
 	type AssetId = u32;
 	type Currency = Balances;
 	type ForceOrigin = frame_system::EnsureRoot<u64>;
-	type AssetDeposit = ConstU64<1>;
-	type AssetAccountDeposit = ConstU64<10>;
-	type MetadataDepositBase = ConstU64<1>;
-	type MetadataDepositPerByte = ConstU64<1>;
-	type ApprovalDeposit = ConstU64<1>;
-	type StringLimit = ConstU32<50>;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ApprovalDeposit;
+	type StringLimit = StringLimit;
 	type Freezer = TestFreezer;
 	type WeightInfo = ();
 	type Extra = ();
 }
 
-use std::{cell::RefCell, collections::HashMap};
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) enum Hook {
@@ -134,26 +140,9 @@ pub(crate) fn hooks() -> Vec<Hook> {
 }
 
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-	let mut storage = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
+	let t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
 
-	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
-		assets: vec![
-			// id, owner, is_sufficient, min_balance
-			(999, 0, true, 1),
-		],
-		metadata: vec![
-			// id, name, symbol, decimals
-			(999, "Token Name".into(), "TOKEN".into(), 10),
-		],
-		accounts: vec![
-			// id, account_id, balance
-			(999, 1, 100),
-		],
-	};
-
-	config.assimilate_storage(&mut storage).unwrap();
-
-	let mut ext: sp_io::TestExternalities = storage.into();
+	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }

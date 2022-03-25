@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +16,8 @@
 // limitations under the License.
 
 /// Contains the inherents for the AURA module
-use sp_inherents::{Error, InherentData, InherentIdentifier};
+
+use sp_inherents::{InherentIdentifier, InherentData, Error};
 
 /// The Aura inherent identifier.
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"auraslot";
@@ -27,13 +28,13 @@ pub type InherentType = sp_consensus_slots::Slot;
 /// Auxiliary trait to extract Aura inherent data.
 pub trait AuraInherentData {
 	/// Get aura inherent data.
-	fn aura_inherent_data(&self) -> Result<Option<InherentType>, Error>;
+	fn aura_inherent_data(&self) ->Result<Option<InherentType>, Error>;
 	/// Replace aura inherent data.
 	fn aura_replace_inherent_data(&mut self, new: InherentType);
 }
 
 impl AuraInherentData for InherentData {
-	fn aura_inherent_data(&self) -> Result<Option<InherentType>, Error> {
+	fn aura_inherent_data(&self) ->Result<Option<InherentType>, Error> {
 		self.get_data(&INHERENT_IDENTIFIER)
 	}
 
@@ -53,7 +54,9 @@ pub struct InherentDataProvider {
 impl InherentDataProvider {
 	/// Create a new instance with the given slot.
 	pub fn new(slot: InherentType) -> Self {
-		Self { slot }
+		Self {
+			slot,
+		}
 	}
 
 	/// Creates the inherent data provider by calculating the slot from the given
@@ -62,10 +65,13 @@ impl InherentDataProvider {
 		timestamp: sp_timestamp::Timestamp,
 		duration: std::time::Duration,
 	) -> Self {
-		let slot =
-			InherentType::from((timestamp.as_duration().as_millis() / duration.as_millis()) as u64);
+		let slot = InherentType::from(
+			(timestamp.as_duration().as_millis() / duration.as_millis()) as u64
+		);
 
-		Self { slot }
+		Self {
+			slot,
+		}
 	}
 }
 
@@ -81,7 +87,10 @@ impl sp_std::ops::Deref for InherentDataProvider {
 #[cfg(feature = "std")]
 #[async_trait::async_trait]
 impl sp_inherents::InherentDataProvider for InherentDataProvider {
-	fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
+	fn provide_inherent_data(
+		&self,
+		inherent_data: &mut InherentData,
+	) ->Result<(), Error> {
 		inherent_data.put_data(INHERENT_IDENTIFIER, &self.slot)
 	}
 

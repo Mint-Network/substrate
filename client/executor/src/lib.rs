@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -29,30 +29,34 @@
 //! wasm engine used, instance cache.
 
 #![warn(missing_docs)]
-#![recursion_limit = "128"]
+#![recursion_limit="128"]
 
 #[macro_use]
 mod native_executor;
+mod wasm_runtime;
 #[cfg(test)]
 mod integration_tests;
-mod wasm_runtime;
 
-pub use codec::Codec;
+pub use wasmi;
 pub use native_executor::{
-	with_externalities_safe, NativeElseWasmExecutor, NativeExecutionDispatch, WasmExecutor,
+	with_externalities_safe, NativeExecutor, WasmExecutor, NativeExecutionDispatch,
 };
+pub use sp_version::{RuntimeVersion, NativeVersion};
+pub use codec::Codec;
 #[doc(hidden)]
-pub use sp_core::traits::Externalities;
-pub use sp_version::{NativeVersion, RuntimeVersion};
+pub use sp_core::traits::{Externalities};
 #[doc(hidden)]
 pub use sp_wasm_interface;
-pub use wasm_runtime::{read_embedded_version, WasmExecutionMethod};
-pub use wasmi;
+pub use wasm_runtime::WasmExecutionMethod;
+pub use wasm_runtime::read_embedded_version;
 
 pub use sc_executor_common::{error, sandbox};
 
-/// Extracts the runtime version of a given runtime code.
-pub trait RuntimeVersionOf {
+/// Provides runtime information.
+pub trait RuntimeInfo {
+	/// Native runtime information.
+	fn native_version(&self) -> &NativeVersion;
+
 	/// Extract [`RuntimeVersion`](sp_version::RuntimeVersion) of the given `runtime_code`.
 	fn runtime_version(
 		&self,
@@ -64,25 +68,26 @@ pub trait RuntimeVersionOf {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_executor_common::runtime_blob::RuntimeBlob;
 	use sc_runtime_test::wasm_binary_unwrap;
 	use sp_io::TestExternalities;
+	use sp_wasm_interface::HostFunctions;
+	use sc_executor_common::runtime_blob::RuntimeBlob;
 
 	#[test]
 	fn call_in_interpreted_wasm_works() {
 		let mut ext = TestExternalities::default();
 		let mut ext = ext.ext();
 
-		let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::new(
+		let executor = WasmExecutor::new(
 			WasmExecutionMethod::Interpreted,
 			Some(8),
+			sp_io::SubstrateHostFunctions::host_functions(),
 			8,
 			None,
-			2,
 		);
 		let res = executor
 			.uncached_call(
-				RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),
+				RuntimeBlob::uncompress_if_needed(&wasm_binary_unwrap()[..]).unwrap(),
 				&mut ext,
 				true,
 				"test_empty_return",

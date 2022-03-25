@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,19 +18,16 @@
 //! Various basic types for use in the assets pallet.
 
 use super::*;
-use frame_support::{
-	pallet_prelude::*,
-	traits::{fungible, tokens::BalanceConversion},
-};
-use sp_runtime::{traits::Convert, FixedPointNumber, FixedPointOperand, FixedU128};
 
 pub(super) type DepositBalanceOf<T, I = ()> =
 	<<T as Config<I>>::Currency as Currency<<T as SystemConfig>::AccountId>>::Balance;
-pub(super) type AssetAccountOf<T, I> =
-	AssetAccount<<T as Config<I>>::Balance, DepositBalanceOf<T, I>, <T as Config<I>>::Extra>;
 
-#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-pub struct AssetDetails<Balance, AccountId, DepositBalance> {
+#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug)]
+pub struct AssetDetails<
+	Balance,
+	AccountId,
+	DepositBalance,
+> {
 	/// Can change `owner`, `issuer`, `freezer` and `admin` accounts.
 	pub(super) owner: AccountId,
 	/// Can mint tokens.
@@ -69,7 +66,7 @@ impl<Balance, AccountId, DepositBalance> AssetDetails<Balance, AccountId, Deposi
 }
 
 /// Data concerning an approval.
-#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default, MaxEncodedLen, TypeInfo)]
+#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default)]
 pub struct Approval<Balance, DepositBalance> {
 	/// The amount of funds approved for the balance transfer from the owner to some delegated
 	/// target.
@@ -78,61 +75,28 @@ pub struct Approval<Balance, DepositBalance> {
 	pub(super) deposit: DepositBalance,
 }
 
-#[test]
-fn ensure_bool_decodes_to_consumer_or_sufficient() {
-	assert_eq!(false.encode(), ExistenceReason::<()>::Consumer.encode());
-	assert_eq!(true.encode(), ExistenceReason::<()>::Sufficient.encode());
-}
-
-#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-pub enum ExistenceReason<Balance> {
-	#[codec(index = 0)]
-	Consumer,
-	#[codec(index = 1)]
-	Sufficient,
-	#[codec(index = 2)]
-	DepositHeld(Balance),
-	#[codec(index = 3)]
-	DepositRefunded,
-}
-
-impl<Balance> ExistenceReason<Balance> {
-	pub(crate) fn take_deposit(&mut self) -> Option<Balance> {
-		if !matches!(self, ExistenceReason::DepositHeld(_)) {
-			return None
-		}
-		if let ExistenceReason::DepositHeld(deposit) =
-			sp_std::mem::replace(self, ExistenceReason::DepositRefunded)
-		{
-			return Some(deposit)
-		} else {
-			return None
-		}
-	}
-}
-
-#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-pub struct AssetAccount<Balance, DepositBalance, Extra> {
+#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default)]
+pub struct AssetBalance<Balance, Extra> {
 	/// The balance.
 	pub(super) balance: Balance,
 	/// Whether the account is frozen.
 	pub(super) is_frozen: bool,
-	/// The reason for the existence of the account.
-	pub(super) reason: ExistenceReason<DepositBalance>,
+	/// `true` if this balance gave the account a self-sufficient reference.
+	pub(super) sufficient: bool,
 	/// Additional "sidecar" data, in case some other pallet wants to use this storage item.
 	pub(super) extra: Extra,
 }
 
-#[derive(Clone, Encode, Decode, Eq, PartialEq, Default, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-pub struct AssetMetadata<DepositBalance, BoundedString> {
+#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default)]
+pub struct AssetMetadata<DepositBalance> {
 	/// The balance deposited for this metadata.
 	///
 	/// This pays for the data stored in this struct.
 	pub(super) deposit: DepositBalance,
 	/// The user friendly name of this asset. Limited in length by `StringLimit`.
-	pub(super) name: BoundedString,
+	pub(super) name: Vec<u8>,
 	/// The ticker symbol for this asset. Limited in length by `StringLimit`.
-	pub(super) symbol: BoundedString,
+	pub(super) symbol: Vec<u8>,
 	/// The number of decimals this asset uses to represent one unit.
 	pub(super) decimals: u8,
 	/// Whether the asset metadata may be changed by a non Force origin.
@@ -140,7 +104,7 @@ pub struct AssetMetadata<DepositBalance, BoundedString> {
 }
 
 /// Witness data for the destroy transactions.
-#[derive(Copy, Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+#[derive(Copy, Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug)]
 pub struct DestroyWitness {
 	/// The number of accounts holding the asset.
 	#[codec(compact)]
@@ -157,35 +121,25 @@ pub struct DestroyWitness {
 /// `minimum_balance` of the asset. This is additive - the `minimum_balance` of the asset must be
 /// met *and then* anything here in addition.
 pub trait FrozenBalance<AssetId, AccountId, Balance> {
-	/// Return the frozen balance.
+	/// Return the frozen balance. Under normal behaviour, this amount should always be
+	/// withdrawable.
 	///
-	/// Generally, the balance of every account must be at least the sum of this (if `Some`) and
-	/// the asset's `minimum_balance` (the latter since there may be complications to destroying an
-	/// asset's account completely).
-	///
-	/// Under normal behaviour, the account balance should not go below the sum of this (if `Some`)
-	/// and the asset's minimum balance. However, the account balance may reasonably begin below
-	/// this sum (e.g. if less than the sum had ever been transfered into the account).
-	///
-	/// In special cases (privileged intervention) the account balance may also go below the sum.
+	/// In reality, the balance of every account must be at least the sum of this (if `Some`) and
+	/// the asset's minimum_balance, since there may be complications to destroying an asset's
+	/// account completely.
 	///
 	/// If `None` is returned, then nothing special is enforced.
+	///
+	/// If any operation ever breaks this requirement (which will only happen through some sort of
+	/// privileged intervention), then `melted` is called to do any cleanup.
 	fn frozen_balance(asset: AssetId, who: &AccountId) -> Option<Balance>;
 
 	/// Called when an account has been removed.
-	///
-	/// # Warning
-	///
-	/// This function must never access storage of pallet asset. This function is called while some
-	/// change are pending. Calling into the pallet asset in this function can result in unexpected
-	/// state.
 	fn died(asset: AssetId, who: &AccountId);
 }
 
 impl<AssetId, AccountId, Balance> FrozenBalance<AssetId, AccountId, Balance> for () {
-	fn frozen_balance(_: AssetId, _: &AccountId) -> Option<Balance> {
-		None
-	}
+	fn frozen_balance(_: AssetId, _: &AccountId) -> Option<Balance> { None }
 	fn died(_: AssetId, _: &AccountId) {}
 }
 
@@ -216,63 +170,9 @@ pub(super) struct DebitFlags {
 
 impl From<TransferFlags> for DebitFlags {
 	fn from(f: TransferFlags) -> Self {
-		Self { keep_alive: f.keep_alive, best_effort: f.best_effort }
-	}
-}
-
-/// Possible errors when converting between external and asset balances.
-#[derive(Eq, PartialEq, Copy, Clone, RuntimeDebug, Encode, Decode)]
-pub enum ConversionError {
-	/// The external minimum balance must not be zero.
-	MinBalanceZero,
-	/// The asset is not present in storage.
-	AssetMissing,
-	/// The asset is not sufficient and thus does not have a reliable `min_balance` so it cannot be
-	/// converted.
-	AssetNotSufficient,
-}
-
-// Type alias for `frame_system`'s account id.
-type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
-// This pallet's asset id and balance type.
-type AssetIdOf<T, I> = <T as Config<I>>::AssetId;
-type AssetBalanceOf<T, I> = <T as Config<I>>::Balance;
-// Generic fungible balance type.
-type BalanceOf<F, T> = <F as fungible::Inspect<AccountIdOf<T>>>::Balance;
-
-/// Converts a balance value into an asset balance based on the ratio between the fungible's
-/// minimum balance and the minimum asset balance.
-pub struct BalanceToAssetBalance<F, T, CON, I = ()>(PhantomData<(F, T, CON, I)>);
-impl<F, T, CON, I> BalanceConversion<BalanceOf<F, T>, AssetIdOf<T, I>, AssetBalanceOf<T, I>>
-	for BalanceToAssetBalance<F, T, CON, I>
-where
-	F: fungible::Inspect<AccountIdOf<T>>,
-	T: Config<I>,
-	I: 'static,
-	CON: Convert<BalanceOf<F, T>, AssetBalanceOf<T, I>>,
-	BalanceOf<F, T>: FixedPointOperand + Zero,
-	AssetBalanceOf<T, I>: FixedPointOperand + Zero,
-{
-	type Error = ConversionError;
-
-	/// Convert the given balance value into an asset balance based on the ratio between the
-	/// fungible's minimum balance and the minimum asset balance.
-	///
-	/// Will return `Err` if the asset is not found, not sufficient or the fungible's minimum
-	/// balance is zero.
-	fn to_asset_balance(
-		balance: BalanceOf<F, T>,
-		asset_id: AssetIdOf<T, I>,
-	) -> Result<AssetBalanceOf<T, I>, ConversionError> {
-		let asset = Asset::<T, I>::get(asset_id).ok_or(ConversionError::AssetMissing)?;
-		// only sufficient assets have a min balance with reliable value
-		ensure!(asset.is_sufficient, ConversionError::AssetNotSufficient);
-		let min_balance = CON::convert(F::minimum_balance());
-		// make sure we don't divide by zero
-		ensure!(!min_balance.is_zero(), ConversionError::MinBalanceZero);
-		let balance = CON::convert(balance);
-		// balance * asset.min_balance / min_balance
-		Ok(FixedU128::saturating_from_rational(asset.min_balance, min_balance)
-			.saturating_mul_int(balance))
+		Self {
+			keep_alive: f.keep_alive,
+			best_effort: f.best_effort,
+		}
 	}
 }

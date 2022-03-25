@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::error;
-use sc_service::{KeepBlocks, PruningMode, Role};
+use sc_service::{PruningMode, Role, KeepBlocks};
 use structopt::StructOpt;
 
 /// Parameters to define the pruning mode
@@ -54,13 +54,13 @@ impl PruningParams {
 						"Validators should run with state pruning disabled (i.e. archive). \
 						You can ignore this check with `--unsafe-pruning`."
 							.to_string(),
-					))
+					));
 				}
 
 				PruningMode::keep_blocks(s.parse().map_err(|_| {
 					error::Error::Input("Invalid pruning mode specified".to_string())
 				})?)
-			},
+			}
 		})
 	}
 

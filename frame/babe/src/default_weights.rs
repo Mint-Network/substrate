@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,8 +19,7 @@
 //! This file was not auto-generated.
 
 use frame_support::weights::{
-	constants::{RocksDbWeight as DbWeight, WEIGHT_PER_MICROS, WEIGHT_PER_NANOS},
-	Weight,
+	Weight, constants::{WEIGHT_PER_MICROS, WEIGHT_PER_NANOS, RocksDbWeight as DbWeight},
 };
 
 impl crate::WeightInfo for () {

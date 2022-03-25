@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -99,7 +99,11 @@ impl<'a> RuntimeCode<'a> {
 	///
 	/// This is only useful for tests that don't want to execute any code.
 	pub fn empty() -> Self {
-		Self { code_fetcher: &NoneFetchRuntimeCode, hash: Vec::new(), heap_pages: None }
+		Self {
+			code_fetcher: &NoneFetchRuntimeCode,
+			hash: Vec::new(),
+			heap_pages: None,
+		}
 	}
 }
 
@@ -126,13 +130,13 @@ pub trait ReadRuntimeVersion: Send + Sync {
 	/// The version information may be embedded into the wasm binary itself. If it is not present,
 	/// then this function may fallback to the legacy way of reading the version.
 	///
-	/// The legacy mechanism involves instantiating the passed wasm runtime and calling
-	/// `Core_version` on it. This is a very expensive operation.
+	/// The legacy mechanism involves instantiating the passed wasm runtime and calling `Core_version`
+	/// on it. This is a very expensive operation.
 	///
 	/// `ext` is only needed in case the calling into runtime happens. Otherwise it is ignored.
 	///
-	/// Compressed wasm blobs are supported and will be decompressed if needed. If uncompression
-	/// fails, the error is returned.
+	/// Compressed wasm blobs are supported and will be decompressed if needed. If uncompression fails,
+	/// the error is returned.
 	///
 	/// # Errors
 	///
@@ -190,91 +194,50 @@ sp_externalities::decl_extension! {
 	pub struct RuntimeSpawnExt(Box<dyn RuntimeSpawn>);
 }
 
-/// Something that can spawn tasks (blocking and non-blocking) with an assigned name
-/// and optional group.
+/// Something that can spawn tasks (blocking and non-blocking) with an assigned name.
 #[dyn_clonable::clonable]
 pub trait SpawnNamed: Clone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
-	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn_blocking(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	);
+	/// The given `name` is used to identify the future in tracing.
+	fn spawn_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
 	/// Spawn the given non-blocking future.
 	///
-	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	);
+	/// The given `name` is used to identify the future in tracing.
+	fn spawn(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
 }
 
 impl SpawnNamed for Box<dyn SpawnNamed> {
-	fn spawn_blocking(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	) {
-		(**self).spawn_blocking(name, group, future)
+	fn spawn_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+		(**self).spawn_blocking(name, future)
 	}
-	fn spawn(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	) {
-		(**self).spawn(name, group, future)
+
+	fn spawn(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+		(**self).spawn(name, future)
 	}
 }
 
-/// Something that can spawn essential tasks (blocking and non-blocking) with an assigned name
-/// and optional group.
+/// Something that can spawn essential tasks (blocking and non-blocking) with an assigned name.
 ///
 /// Essential tasks are special tasks that should take down the node when they end.
 #[dyn_clonable::clonable]
 pub trait SpawnEssentialNamed: Clone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
-	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn_essential_blocking(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	);
+	/// The given `name` is used to identify the future in tracing.
+	fn spawn_essential_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
 	/// Spawn the given non-blocking future.
 	///
-	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn_essential(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	);
+	/// The given `name` is used to identify the future in tracing.
+	fn spawn_essential(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
 }
 
 impl SpawnEssentialNamed for Box<dyn SpawnEssentialNamed> {
-	fn spawn_essential_blocking(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	) {
-		(**self).spawn_essential_blocking(name, group, future)
+	fn spawn_essential_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+		(**self).spawn_essential_blocking(name, future)
 	}
 
-	fn spawn_essential(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: futures::future::BoxFuture<'static, ()>,
-	) {
-		(**self).spawn_essential(name, group, future)
+	fn spawn_essential(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+		(**self).spawn_essential(name, future)
 	}
 }

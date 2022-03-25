@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,11 +17,10 @@
 
 //! Traits for managing information attached to pallets and their constituents.
 
-use codec::{Decode, Encode};
+use codec::{Encode, Decode};
 use sp_runtime::RuntimeDebug;
-use sp_std::prelude::*;
 
-/// Provides information about the pallet itself and its setup in the runtime.
+/// Provides information about the pallet setup in the runtime.
 ///
 /// An implementor should be able to provide information about each pallet that
 /// is configured in `construct_runtime!`.
@@ -30,81 +29,16 @@ pub trait PalletInfo {
 	fn index<P: 'static>() -> Option<usize>;
 	/// Convert the given pallet `P` into its name as configured in the runtime.
 	fn name<P: 'static>() -> Option<&'static str>;
-	/// Convert the given pallet `P` into its Rust module name as used in `construct_runtime!`.
-	fn module_name<P: 'static>() -> Option<&'static str>;
-	/// Convert the given pallet `P` into its containing crate version.
-	fn crate_version<P: 'static>() -> Option<CrateVersion>;
 }
 
-/// Information regarding an instance of a pallet.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, RuntimeDebug)]
-pub struct PalletInfoData {
-	/// Index of the pallet as configured in the runtime.
-	pub index: usize,
-	/// Name of the pallet as configured in the runtime.
-	pub name: &'static str,
-	/// Name of the Rust module containing the pallet.
-	pub module_name: &'static str,
-	/// Version of the crate containing the pallet.
-	pub crate_version: CrateVersion,
-}
-
-/// Provides information about the pallet itself and its setup in the runtime.
+/// Provides information about the pallet setup in the runtime.
 ///
-/// Declare some information and access the information provided by [`PalletInfo`] for a specific
-/// pallet.
+/// Access the information provided by [`PalletInfo`] for a specific pallet.
 pub trait PalletInfoAccess {
 	/// Index of the pallet as configured in the runtime.
 	fn index() -> usize;
 	/// Name of the pallet as configured in the runtime.
 	fn name() -> &'static str;
-	/// Name of the Rust module containing the pallet.
-	fn module_name() -> &'static str;
-	/// Version of the crate containing the pallet.
-	fn crate_version() -> CrateVersion;
-}
-
-/// Provide information about a bunch of pallets.
-pub trait PalletsInfoAccess {
-	/// The number of pallets' information that this type represents.
-	///
-	/// You probably don't want this function but `infos()` instead.
-	fn count() -> usize {
-		0
-	}
-
-	/// Extend the given vector by all of the pallets' information that this type represents.
-	///
-	/// You probably don't want this function but `infos()` instead.
-	fn accumulate(_accumulator: &mut Vec<PalletInfoData>) {}
-
-	/// All of the pallets' information that this type represents.
-	fn infos() -> Vec<PalletInfoData> {
-		let mut result = Vec::with_capacity(Self::count());
-		Self::accumulate(&mut result);
-		result
-	}
-}
-
-impl PalletsInfoAccess for () {}
-impl<T: PalletsInfoAccess> PalletsInfoAccess for (T,) {
-	fn count() -> usize {
-		T::count()
-	}
-	fn accumulate(acc: &mut Vec<PalletInfoData>) {
-		T::accumulate(acc)
-	}
-}
-
-impl<T1: PalletsInfoAccess, T2: PalletsInfoAccess> PalletsInfoAccess for (T1, T2) {
-	fn count() -> usize {
-		T1::count() + T2::count()
-	}
-	fn accumulate(acc: &mut Vec<PalletInfoData>) {
-		// The AllPallets type tuplises the pallets in reverse order, so we unreverse them here.
-		T2::accumulate(acc);
-		T1::accumulate(acc);
-	}
 }
 
 /// The function and pallet name of the Call.
@@ -134,65 +68,56 @@ pub trait GetCallMetadata {
 	fn get_call_metadata(&self) -> CallMetadata;
 }
 
-/// The version of a crate.
-#[derive(Debug, Eq, PartialEq, Encode, Decode, Clone, Copy, Default)]
-pub struct CrateVersion {
-	/// The major version of the crate.
+/// The storage key postfix that is used to store the [`PalletVersion`] per pallet.
+///
+/// The full storage key is built by using:
+/// Twox128([`PalletInfo::name`]) ++ Twox128([`PALLET_VERSION_STORAGE_KEY_POSTFIX`])
+pub const PALLET_VERSION_STORAGE_KEY_POSTFIX: &[u8] = b":__PALLET_VERSION__:";
+
+/// The version of a pallet.
+///
+/// Each pallet version is stored in the state under a fixed key. See
+/// [`PALLET_VERSION_STORAGE_KEY_POSTFIX`] for how this key is built.
+#[derive(RuntimeDebug, Eq, PartialEq, Encode, Decode, Ord, Clone, Copy)]
+pub struct PalletVersion {
+	/// The major version of the pallet.
 	pub major: u16,
-	/// The minor version of the crate.
+	/// The minor version of the pallet.
 	pub minor: u8,
-	/// The patch version of the crate.
+	/// The patch version of the pallet.
 	pub patch: u8,
 }
 
-impl CrateVersion {
-	pub const fn new(major: u16, minor: u8, patch: u8) -> Self {
-		Self { major, minor, patch }
-	}
-}
-
-impl sp_std::cmp::Ord for CrateVersion {
-	fn cmp(&self, other: &Self) -> sp_std::cmp::Ordering {
-		self.major
-			.cmp(&other.major)
-			.then_with(|| self.minor.cmp(&other.minor).then_with(|| self.patch.cmp(&other.patch)))
-	}
-}
-
-impl sp_std::cmp::PartialOrd for CrateVersion {
-	fn partial_cmp(&self, other: &Self) -> Option<sp_std::cmp::Ordering> {
-		Some(<Self as Ord>::cmp(&self, other))
-	}
-}
-
-/// The storage key postfix that is used to store the [`StorageVersion`] per pallet.
-///
-/// The full storage key is built by using:
-/// Twox128([`PalletInfo::name`]) ++ Twox128([`STORAGE_VERSION_STORAGE_KEY_POSTFIX`])
-pub const STORAGE_VERSION_STORAGE_KEY_POSTFIX: &[u8] = b":__STORAGE_VERSION__:";
-
-/// The storage version of a pallet.
-///
-/// Each storage version of a pallet is stored in the state under a fixed key. See
-/// [`STORAGE_VERSION_STORAGE_KEY_POSTFIX`] for how this key is built.
-#[derive(Debug, Eq, PartialEq, Encode, Decode, Ord, Clone, Copy, PartialOrd, Default)]
-pub struct StorageVersion(u16);
-
-impl StorageVersion {
+impl PalletVersion {
 	/// Creates a new instance of `Self`.
-	pub const fn new(version: u16) -> Self {
-		Self(version)
+	pub fn new(major: u16, minor: u8, patch: u8) -> Self {
+		Self {
+			major,
+			minor,
+			patch,
+		}
 	}
 
-	/// Returns the storage key for a storage version.
+	/// Returns the storage key for a pallet version.
 	///
-	/// See [`STORAGE_VERSION_STORAGE_KEY_POSTFIX`] on how this key is built.
-	pub fn storage_key<P: PalletInfoAccess>() -> [u8; 32] {
-		let pallet_name = P::name();
-		crate::storage::storage_prefix(pallet_name.as_bytes(), STORAGE_VERSION_STORAGE_KEY_POSTFIX)
+	/// See [`PALLET_VERSION_STORAGE_KEY_POSTFIX`] on how this key is built.
+	///
+	/// Returns `None` if the given `PI` returned a `None` as name for the given
+	/// `Pallet`.
+	pub fn storage_key<PI: PalletInfo, Pallet: 'static>() -> Option<[u8; 32]> {
+		let pallet_name = PI::name::<Pallet>()?;
+
+		let pallet_name = sp_io::hashing::twox_128(pallet_name.as_bytes());
+		let postfix = sp_io::hashing::twox_128(PALLET_VERSION_STORAGE_KEY_POSTFIX);
+
+		let mut final_key = [0u8; 32];
+		final_key[..16].copy_from_slice(&pallet_name);
+		final_key[16..].copy_from_slice(&postfix);
+
+		Some(final_key)
 	}
 
-	/// Put this storage version for the given pallet into the storage.
+	/// Put this pallet version into the storage.
 	///
 	/// It will use the storage key that is associated with the given `Pallet`.
 	///
@@ -204,106 +129,50 @@ impl StorageVersion {
 	///
 	/// It will also panic if this function isn't executed in an externalities
 	/// provided environment.
-	pub fn put<P: PalletInfoAccess>(&self) {
-		let key = Self::storage_key::<P>();
+	pub fn put_into_storage<PI: PalletInfo, Pallet: 'static>(&self) {
+		let key = Self::storage_key::<PI, Pallet>()
+			.expect("Every active pallet has a name in the runtime; qed");
 
 		crate::storage::unhashed::put(&key, self);
 	}
+}
 
-	/// Get the storage version of the given pallet from the storage.
-	///
-	/// It will use the storage key that is associated with the given `Pallet`.
-	///
-	/// # Panics
-	///
-	/// This function will panic iff `Pallet` can not be found by `PalletInfo`.
-	/// In a runtime that is put together using
-	/// [`construct_runtime!`](crate::construct_runtime) this should never happen.
-	///
-	/// It will also panic if this function isn't executed in an externalities
-	/// provided environment.
-	pub fn get<P: PalletInfoAccess>() -> Self {
-		let key = Self::storage_key::<P>();
+impl sp_std::cmp::PartialOrd for PalletVersion {
+	fn partial_cmp(&self, other: &Self) -> Option<sp_std::cmp::Ordering> {
+		let res = self.major
+			.cmp(&other.major)
+			.then_with(||
+				self.minor
+					.cmp(&other.minor)
+					.then_with(|| self.patch.cmp(&other.patch)
+					));
 
-		crate::storage::unhashed::get_or_default(&key)
+		Some(res)
 	}
 }
 
-impl PartialEq<u16> for StorageVersion {
-	fn eq(&self, other: &u16) -> bool {
-		self.0 == *other
-	}
-}
-
-impl PartialOrd<u16> for StorageVersion {
-	fn partial_cmp(&self, other: &u16) -> Option<sp_std::cmp::Ordering> {
-		Some(self.0.cmp(other))
-	}
-}
-
-/// Provides information about the storage version of a pallet.
+/// Provides version information about a pallet.
 ///
-/// It differentiates between current and on-chain storage version. Both should be only out of sync
-/// when a new runtime upgrade was applied and the runtime migrations did not yet executed.
-/// Otherwise it means that the pallet works with an unsupported storage version and unforeseen
-/// stuff can happen.
-///
-/// The current storage version is the version of the pallet as supported at runtime. The active
-/// storage version is the version of the pallet in the storage.
-///
-/// It is required to update the on-chain storage version manually when a migration was applied.
-pub trait GetStorageVersion {
-	/// Returns the current storage version as supported by the pallet.
-	fn current_storage_version() -> StorageVersion;
-	/// Returns the on-chain storage version of the pallet as stored in the storage.
-	fn on_chain_storage_version() -> StorageVersion;
-}
+/// This trait provides two functions for returning the version of a
+/// pallet. There is a state where both functions can return distinct versions.
+/// See [`GetPalletVersion::storage_version`] for more information about this.
+pub trait GetPalletVersion {
+	/// Returns the current version of the pallet.
+	fn current_version() -> PalletVersion;
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	struct Pallet1;
-	impl PalletInfoAccess for Pallet1 {
-		fn index() -> usize {
-			1
-		}
-		fn name() -> &'static str {
-			"Pallet1"
-		}
-		fn module_name() -> &'static str {
-			"pallet1"
-		}
-		fn crate_version() -> CrateVersion {
-			CrateVersion::new(1, 0, 0)
-		}
-	}
-	struct Pallet2;
-	impl PalletInfoAccess for Pallet2 {
-		fn index() -> usize {
-			2
-		}
-		fn name() -> &'static str {
-			"Pallet2"
-		}
-		fn module_name() -> &'static str {
-			"pallet2"
-		}
-		fn crate_version() -> CrateVersion {
-			CrateVersion::new(1, 0, 0)
-		}
-	}
-
-	#[test]
-	fn check_storage_version_ordering() {
-		let version = StorageVersion::new(1);
-		assert!(version == StorageVersion::new(1));
-		assert!(version < StorageVersion::new(2));
-		assert!(version < StorageVersion::new(3));
-
-		let version = StorageVersion::new(2);
-		assert!(version < StorageVersion::new(3));
-		assert!(version > StorageVersion::new(1));
-		assert!(version < StorageVersion::new(5));
-	}
+	/// Returns the version of the pallet that is stored in storage.
+	///
+	/// Most of the time this will return the exact same version as
+	/// [`GetPalletVersion::current_version`]. Only when being in
+	/// a state after a runtime upgrade happened and the pallet did
+	/// not yet updated its version in storage, this will return a
+	/// different(the previous, seen from the time of calling) version.
+	///
+	/// See [`PalletVersion`] for more information.
+	///
+	/// # Note
+	///
+	/// If there was no previous version of the pallet stored in the state,
+	/// this function returns `None`.
+	fn storage_version() -> Option<PalletVersion>;
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,18 +21,12 @@
 
 use std::cell::RefCell;
 
-use frame_support::{
-	parameter_types,
-	traits::{ConstU32, ConstU64},
-	weights::Weight,
-};
+use frame_support::{parameter_types, weights::Weight};
 use pallet_session::historical as pallet_session_historical;
 use sp_core::H256;
-use sp_runtime::{
-	testing::{Header, TestXt, UintAuthorityId},
-	traits::{BlakeTwo256, ConvertInto, IdentityLookup},
-	Permill,
-};
+use sp_runtime::testing::{Header, TestXt, UintAuthorityId};
+use sp_runtime::traits::{BlakeTwo256, ConvertInto, IdentityLookup};
+use sp_runtime::{Perbill, Percent};
 use sp_staking::{
 	offence::{OffenceError, ReportOffence},
 	SessionIndex,
@@ -76,11 +70,13 @@ impl pallet_session::SessionManager<u64> for TestSessionManager {
 
 impl pallet_session::historical::SessionManager<u64, u64> for TestSessionManager {
 	fn new_session(_new_index: SessionIndex) -> Option<Vec<(u64, u64)>> {
-		VALIDATORS.with(|l| {
-			l.borrow_mut()
-				.take()
-				.map(|validators| validators.iter().map(|v| (*v, *v)).collect())
-		})
+		VALIDATORS.with(|l| l
+			.borrow_mut()
+			.take()
+			.map(|validators| {
+				validators.iter().map(|v| (*v, *v)).collect()
+			})
+		)
 	}
 	fn end_session(_: SessionIndex) {}
 	fn start_session(_: SessionIndex) {}
@@ -109,25 +105,20 @@ impl ReportOffence<u64, IdentificationTuple, Offence> for OffenceHandler {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let t = frame_system::GenesisConfig::default().build_storage::<Runtime>().unwrap();
-	let mut result: sp_io::TestExternalities = t.into();
-	// Set the default keys, otherwise session will discard the validator.
-	result.execute_with(|| {
-		for i in 1..=6 {
-			System::inc_providers(&i);
-			assert_eq!(Session::set_keys(Origin::signed(i), (i - 1).into(), vec![]), Ok(()));
-		}
-	});
-	result
+	let t = frame_system::GenesisConfig::default()
+		.build_storage::<Runtime>()
+		.unwrap();
+	t.into()
 }
 
 parameter_types! {
+	pub const BlockHashCount: u64 = 250;
 	pub BlockWeights: frame_system::limits::BlockWeights =
 		frame_system::limits::BlockWeights::simple_max(1024);
 }
 
 impl frame_system::Config for Runtime {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
 	type DbWeight = ();
@@ -141,7 +132,7 @@ impl frame_system::Config for Runtime {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
@@ -150,7 +141,6 @@ impl frame_system::Config for Runtime {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<16>;
 }
 
 parameter_types! {
@@ -158,15 +148,19 @@ parameter_types! {
 	pub const Offset: u64 = 0;
 }
 
+parameter_types! {
+	pub const DisabledValidatorsThreshold: Perbill = Perbill::from_percent(33);
+}
+
 impl pallet_session::Config for Runtime {
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager =
-		pallet_session::historical::NoteHistoricalRoot<Runtime, TestSessionManager>;
-	type SessionHandler = (ImOnline,);
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, TestSessionManager>;
+	type SessionHandler = (ImOnline, );
 	type ValidatorId = u64;
 	type ValidatorIdOf = ConvertInto;
 	type Keys = UintAuthorityId;
 	type Event = Event;
+	type DisabledValidatorsThreshold = DisabledValidatorsThreshold;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
 	type WeightInfo = ();
 }
@@ -176,15 +170,19 @@ impl pallet_session::historical::Config for Runtime {
 	type FullIdentificationOf = ConvertInto;
 }
 
+parameter_types! {
+	pub const UncleGenerations: u32 = 5;
+}
+
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = ();
-	type UncleGenerations = ConstU64<5>;
+	type UncleGenerations = UncleGenerations;
 	type FilterUncle = ();
 	type EventHandler = ImOnline;
 }
 
 thread_local! {
-	pub static MOCK_CURRENT_SESSION_PROGRESS: RefCell<Option<Option<Permill>>> = RefCell::new(None);
+	pub static MOCK_CURRENT_SESSION_PROGRESS: RefCell<Option<Option<Percent>>> = RefCell::new(None);
 }
 
 thread_local! {
@@ -201,7 +199,7 @@ impl frame_support::traits::EstimateNextSessionRotation<u64> for TestNextSession
 		mock.unwrap_or(pallet_session::PeriodicSessions::<Period, Offset>::average_session_length())
 	}
 
-	fn estimate_current_session_progress(now: u64) -> (Option<Permill>, Weight) {
+	fn estimate_current_session_progress(now: u64) -> (Option<Percent>, Weight) {
 		let (estimate, weight) =
 			pallet_session::PeriodicSessions::<Period, Offset>::estimate_current_session_progress(
 				now,
@@ -230,13 +228,9 @@ impl Config for Runtime {
 	type ReportUnresponsiveness = OffenceHandler;
 	type UnsignedPriority = UnsignedPriority;
 	type WeightInfo = ();
-	type MaxKeys = ConstU32<10_000>;
-	type MaxPeerInHeartbeats = ConstU32<10_000>;
-	type MaxPeerDataEncodingSize = ConstU32<1_000>;
 }
 
-impl<LocalCall> frame_system::offchain::SendTransactionTypes<LocalCall> for Runtime
-where
+impl<LocalCall> frame_system::offchain::SendTransactionTypes<LocalCall> for Runtime where
 	Call: From<LocalCall>,
 {
 	type OverarchingCall = Call;

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,10 +28,7 @@ frame_support::decl_storage! {
 }
 
 frame_support::decl_event!(
-	pub enum Event<T>
-	where
-		B = <T as Trait>::Balance,
-	{
+	pub enum Event<T> where B = <T as Trait>::Balance {
 		Dummy(B),
 	}
 );
@@ -46,7 +43,7 @@ frame_support::decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 		fn deposit_event() = default;
 		type Error = Error<T>;
-		const Foo: u32 = u32::MAX;
+		const Foo: u32 = u32::max_value();
 
 		#[weight = 0]
 		fn accumulate_dummy(_origin, _increase_by: T::Balance) {
@@ -97,7 +94,7 @@ impl<T: Trait> frame_support::inherent::ProvideInherent for Module<T> {
 mod tests {
 	use crate as pallet_test;
 
-	use frame_support::traits::ConstU64;
+	use frame_support::parameter_types;
 
 	type SignedExtra = (
 		frame_system::CheckEra<Runtime>,
@@ -124,8 +121,12 @@ mod tests {
 		}
 	);
 
+	parameter_types! {
+		pub const BlockHashCount: u64 = 250;
+	}
+
 	impl frame_system::Config for Runtime {
-		type BaseCallFilter = frame_support::traits::Everything;
+		type BaseCallFilter = ();
 		type Origin = Origin;
 		type Index = u64;
 		type BlockNumber = u64;
@@ -136,7 +137,7 @@ mod tests {
 		type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 		type Header = TestHeader;
 		type Event = ();
-		type BlockHashCount = ConstU64<250>;
+		type BlockHashCount = BlockHashCount;
 		type DbWeight = ();
 		type BlockWeights = ();
 		type BlockLength = ();
@@ -148,7 +149,6 @@ mod tests {
 		type SystemWeightInfo = ();
 		type SS58Prefix = ();
 		type OnSetCode = ();
-		type MaxConsumers = frame_support::traits::ConstU32<16>;
 	}
 
 	impl pallet_test::Trait for Runtime {

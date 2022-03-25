@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,73 +20,94 @@
 //! NOTE: If you're looking for `parameter_types`, it has moved in to the top-level module.
 
 pub mod tokens;
-pub use tokens::{
-	currency::{
-		Currency, LockIdentifier, LockableCurrency, NamedReservableCurrency, ReservableCurrency,
-		VestingSchedule,
-	},
-	fungible, fungibles,
-	imbalance::{Imbalance, OnUnbalanced, SignedImbalance},
-	BalanceStatus, ExistenceRequirement, WithdrawReasons,
+pub use tokens::fungible;
+pub use tokens::fungibles;
+pub use tokens::currency::{
+	Currency, LockIdentifier, LockableCurrency, ReservableCurrency, VestingSchedule,
 };
+pub use tokens::imbalance::{Imbalance, OnUnbalanced, SignedImbalance};
+pub use tokens::{ExistenceRequirement, WithdrawReasons, BalanceStatus};
 
 mod members;
-#[allow(deprecated)]
-pub use members::{AllowAll, DenyAll, Filter};
 pub use members::{
-	AsContains, ChangeMembers, Contains, ContainsLengthBound, Everything, InitializeMembers,
-	IsInVec, Nothing, SortedMembers,
+	Contains, ContainsLengthBound, SortedMembers, InitializeMembers, ChangeMembers, All, IsInVec,
+	AsContains,
 };
 
 mod validation;
 pub use validation::{
-	DisabledValidators, EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor,
-	KeyOwnerProofSystem, Lateness, OneSessionHandler, ValidatorRegistration, ValidatorSet,
-	ValidatorSetWithIdentification, VerifySeal,
+	ValidatorSet, ValidatorSetWithIdentification, OneSessionHandler, FindAuthor, VerifySeal,
+	EstimateNextNewSession, EstimateNextSessionRotation, KeyOwnerProofSystem, ValidatorRegistration,
+	Lateness,
 };
 
 mod filter;
-pub use filter::{ClearFilterGuard, FilterStack, FilterStackGuard, InstanceFilter, IntegrityTest};
+pub use filter::{
+	Filter, FilterStack, FilterStackGuard, ClearFilterGuard, InstanceFilter, IntegrityTest,
+};
 
 mod misc;
 pub use misc::{
-	Backing, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstU128, ConstU16,
-	ConstU32, ConstU64, ConstU8, EnsureInherentsAreFirst, EqualPrivilegeOnly, EstimateCallFee,
-	ExecuteBlock, ExtrinsicCall, Get, GetBacking, GetDefault, HandleLifetime, IsSubType, IsType,
-	Len, OffchainWorker, OnKilledAccount, OnNewAccount, PreimageProvider, PreimageRecipient,
-	PrivilegeCmp, SameOrOther, Time, TryCollect, TryDrop, UnixTime, WrapperKeepOpaque,
-	WrapperOpaque,
+	Len, Get, GetDefault, HandleLifetime, TryDrop, Time, UnixTime, IsType, IsSubType, ExecuteBlock,
+	SameOrOther, OnNewAccount, OnKilledAccount, OffchainWorker, GetBacking, Backing, ExtrinsicCall,
+	EnsureInherentsAreFirst, ConstU32,
 };
 
 mod stored_map;
-pub use stored_map::{StorageMapShim, StoredMap};
+pub use stored_map::{StoredMap, StorageMapShim};
 mod randomness;
 pub use randomness::Randomness;
 
 mod metadata;
 pub use metadata::{
-	CallMetadata, CrateVersion, GetCallMetadata, GetCallName, GetStorageVersion, PalletInfo,
-	PalletInfoAccess, PalletInfoData, PalletsInfoAccess, StorageVersion,
-	STORAGE_VERSION_STORAGE_KEY_POSTFIX,
+	CallMetadata, GetCallMetadata, GetCallName, PalletInfo, PalletVersion, GetPalletVersion,
+	PALLET_VERSION_STORAGE_KEY_POSTFIX, PalletInfoAccess,
 };
 
 mod hooks;
-#[cfg(feature = "std")]
-pub use hooks::GenesisBuild;
-pub use hooks::{
-	Hooks, OnFinalize, OnGenesis, OnIdle, OnInitialize, OnRuntimeUpgrade, OnTimestampSet,
-};
+pub use hooks::{Hooks, OnGenesis, OnInitialize, OnFinalize, OnIdle, OnRuntimeUpgrade, OnTimestampSet};
 #[cfg(feature = "try-runtime")]
 pub use hooks::{OnRuntimeUpgradeHelpersExt, ON_RUNTIME_UPGRADE_PREFIX};
+#[cfg(feature = "std")]
+pub use hooks::GenesisBuild;
 
 pub mod schedule;
 mod storage;
-pub use storage::{
-	Instance, PartialStorageInfoTrait, StorageInfo, StorageInfoTrait, StorageInstance,
-};
+pub use storage::{Instance, StorageInstance, StorageInfo, StorageInfoTrait};
 
 mod dispatch;
-pub use dispatch::{EnsureOneOf, EnsureOrigin, OriginTrait, UnfilteredDispatchable};
+pub use dispatch::{EnsureOrigin, OriginTrait, UnfilteredDispatchable};
 
 mod voting;
 pub use voting::{CurrencyToVote, SaturatingCurrencyToVote, U128CurrencyToVote};
+
+mod max_encoded_len;
+// This looks like an overlapping import/export, but it isn't:
+// macros and traits live in distinct namespaces.
+pub use max_encoded_len::MaxEncodedLen;
+/// Derive [`MaxEncodedLen`][max_encoded_len::MaxEncodedLen].
+///
+/// # Examples
+///
+/// ```
+/// # use codec::Encode;
+/// # use frame_support::traits::MaxEncodedLen;
+/// #[derive(Encode, MaxEncodedLen)]
+/// struct TupleStruct(u8, u32);
+///
+/// assert_eq!(TupleStruct::max_encoded_len(), u8::max_encoded_len() + u32::max_encoded_len());
+/// ```
+///
+/// ```
+/// # use codec::Encode;
+/// # use frame_support::traits::MaxEncodedLen;
+/// #[derive(Encode, MaxEncodedLen)]
+/// enum GenericEnum<T> {
+/// 	A,
+/// 	B(T),
+/// }
+///
+/// assert_eq!(GenericEnum::<u8>::max_encoded_len(), u8::max_encoded_len() + u8::max_encoded_len());
+/// assert_eq!(GenericEnum::<u128>::max_encoded_len(), u8::max_encoded_len() + u128::max_encoded_len());
+/// ```
+pub use frame_support_procedural::MaxEncodedLen;

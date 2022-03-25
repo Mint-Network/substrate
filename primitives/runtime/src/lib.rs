@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,15 +19,13 @@
 
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
+
 // to allow benchmarking
 #![cfg_attr(feature = "bench", feature(test))]
-#[cfg(feature = "bench")]
-extern crate test;
+#[cfg(feature = "bench")] extern crate test;
 
 #[doc(hidden)]
 pub use codec;
-#[doc(hidden)]
-pub use scale_info;
 #[cfg(feature = "std")]
 #[doc(hidden)]
 pub use serde;
@@ -40,31 +38,26 @@ pub use paste;
 #[doc(hidden)]
 pub use sp_application_crypto as app_crypto;
 
-pub use sp_core::storage::StateVersion;
 #[cfg(feature = "std")]
 pub use sp_core::storage::{Storage, StorageChild};
 
-use sp_core::{
-	crypto::{self, ByteArray},
-	ecdsa, ed25519,
-	hash::{H256, H512},
-	sr25519,
-};
-use sp_std::{convert::TryFrom, prelude::*};
+use sp_std::prelude::*;
+use sp_std::convert::TryFrom;
+use sp_core::{crypto::{self, Public}, ed25519, sr25519, ecdsa, hash::{H256, H512}};
 
-use codec::{Decode, Encode};
-use scale_info::TypeInfo;
+use codec::{Encode, Decode};
 
 pub mod curve;
 pub mod generic;
-mod multiaddress;
 pub mod offchain;
-pub mod runtime_logger;
-mod runtime_string;
 #[cfg(feature = "std")]
 pub mod testing;
 pub mod traits;
 pub mod transaction_validity;
+pub mod random_number_generator;
+mod runtime_string;
+mod multiaddress;
+pub mod runtime_logger;
 
 pub use crate::runtime_string::*;
 
@@ -72,28 +65,27 @@ pub use crate::runtime_string::*;
 pub use multiaddress::MultiAddress;
 
 /// Re-export these since they're only "kind of" generic.
-pub use generic::{Digest, DigestItem};
+pub use generic::{DigestItem, Digest};
 
-pub use sp_application_crypto::{BoundToRuntimeAppPublic, RuntimeAppPublic};
 /// Re-export this since it's part of the API of this crate.
-pub use sp_core::{
-	crypto::{key_types, AccountId32, CryptoType, CryptoTypeId, KeyTypeId},
-	TypeId,
-};
+pub use sp_core::{TypeId, crypto::{key_types, KeyTypeId, CryptoType, CryptoTypeId, AccountId32}};
+pub use sp_application_crypto::{RuntimeAppPublic, BoundToRuntimeAppPublic};
 
 /// Re-export `RuntimeDebug`, to avoid dependency clutter.
 pub use sp_core::RuntimeDebug;
 
-/// Re-export big_uint stuff.
-pub use sp_arithmetic::biguint;
-/// Re-export 128 bit helpers.
-pub use sp_arithmetic::helpers_128bit;
 /// Re-export top-level arithmetic stuff.
 pub use sp_arithmetic::{
-	traits::SaturatedConversion, FixedI128, FixedI64, FixedPointNumber, FixedPointOperand,
-	FixedU128, InnerOf, PerThing, PerU16, Perbill, Percent, Permill, Perquintill, Rational128,
-	UpperOf,
+	PerThing, Perquintill, Perbill, Permill, Percent, PerU16, InnerOf, UpperOf,
+	Rational128, FixedI64, FixedI128, FixedU128, FixedPointNumber, FixedPointOperand,
+	traits::SaturatedConversion,
 };
+/// Re-export 128 bit helpers.
+pub use sp_arithmetic::helpers_128bit;
+/// Re-export big_uint stuff.
+pub use sp_arithmetic::biguint;
+
+pub use random_number_generator::RandomNumberGenerator;
 
 pub use either::Either;
 
@@ -130,7 +122,7 @@ impl Justifications {
 	/// not inserted.
 	pub fn append(&mut self, justification: Justification) -> bool {
 		if self.get(justification.0).is_some() {
-			return false
+			return false;
 		}
 		self.0.push(justification);
 		true
@@ -164,11 +156,11 @@ impl From<Justification> for Justifications {
 	}
 }
 
-use traits::{Lazy, Verify};
+use traits::{Verify, Lazy};
 
-use crate::traits::IdentifyAccount;
 #[cfg(feature = "std")]
-pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use crate::traits::IdentifyAccount;
 
 /// Complex storage builder stuff.
 #[cfg(feature = "std")]
@@ -180,7 +172,10 @@ pub trait BuildStorage {
 		Ok(storage)
 	}
 	/// Assimilate the storage for this module into pre-existing overlays.
-	fn assimilate_storage(&self, storage: &mut sp_core::storage::Storage) -> Result<(), String>;
+	fn assimilate_storage(
+		&self,
+		storage: &mut sp_core::storage::Storage,
+	) -> Result<(), String>;
 }
 
 /// Something that can build the genesis storage of a module.
@@ -195,14 +190,17 @@ pub trait BuildModuleGenesisStorage<T, I>: Sized {
 
 #[cfg(feature = "std")]
 impl BuildStorage for sp_core::storage::Storage {
-	fn assimilate_storage(&self, storage: &mut sp_core::storage::Storage) -> Result<(), String> {
+	fn assimilate_storage(
+		&self,
+		storage: &mut sp_core::storage::Storage,
+	)-> Result<(), String> {
 		storage.top.extend(self.top.iter().map(|(k, v)| (k.clone(), v.clone())));
 		for (k, other_map) in self.children_default.iter() {
 			let k = k.clone();
 			if let Some(map) = storage.children_default.get_mut(&k) {
 				map.data.extend(other_map.data.iter().map(|(k, v)| (k.clone(), v.clone())));
 				if !map.child_info.try_update(&other_map.child_info) {
-					return Err("Incompatible child info update".to_string())
+					return Err("Incompatible child info update".to_string());
 				}
 			} else {
 				storage.children_default.insert(k, other_map.clone());
@@ -214,7 +212,10 @@ impl BuildStorage for sp_core::storage::Storage {
 
 #[cfg(feature = "std")]
 impl BuildStorage for () {
-	fn assimilate_storage(&self, _: &mut sp_core::storage::Storage) -> Result<(), String> {
+	fn assimilate_storage(
+		&self,
+		_: &mut sp_core::storage::Storage,
+	) -> Result<(), String> {
 		Err("`assimilate_storage` not implemented for `()`".into())
 	}
 }
@@ -224,7 +225,7 @@ pub type ConsensusEngineId = [u8; 4];
 
 /// Signature verify that can work with any known signature types..
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-#[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug)]
 pub enum MultiSignature {
 	/// An Ed25519 signature.
 	Ed25519(ed25519::Signature),
@@ -243,11 +244,7 @@ impl From<ed25519::Signature> for MultiSignature {
 impl TryFrom<MultiSignature> for ed25519::Signature {
 	type Error = ();
 	fn try_from(m: MultiSignature) -> Result<Self, Self::Error> {
-		if let MultiSignature::Ed25519(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSignature::Ed25519(x) = m { Ok(x) } else { Err(()) }
 	}
 }
 
@@ -260,11 +257,7 @@ impl From<sr25519::Signature> for MultiSignature {
 impl TryFrom<MultiSignature> for sr25519::Signature {
 	type Error = ();
 	fn try_from(m: MultiSignature) -> Result<Self, Self::Error> {
-		if let MultiSignature::Sr25519(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSignature::Sr25519(x) = m { Ok(x) } else { Err(()) }
 	}
 }
 
@@ -277,16 +270,18 @@ impl From<ecdsa::Signature> for MultiSignature {
 impl TryFrom<MultiSignature> for ecdsa::Signature {
 	type Error = ();
 	fn try_from(m: MultiSignature) -> Result<Self, Self::Error> {
-		if let MultiSignature::Ecdsa(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSignature::Ecdsa(x) = m { Ok(x) } else { Err(()) }
+	}
+}
+
+impl Default for MultiSignature {
+	fn default() -> Self {
+		Self::Ed25519(Default::default())
 	}
 }
 
 /// Public key for any known crypto algorithm.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum MultiSigner {
 	/// An Ed25519 identity.
@@ -295,6 +290,12 @@ pub enum MultiSigner {
 	Sr25519(sr25519::Public),
 	/// An SECP256k1/ECDSA identity (actually, the Blake2 hash of the compressed pub key).
 	Ecdsa(ecdsa::Public),
+}
+
+impl Default for MultiSigner {
+	fn default() -> Self {
+		Self::Ed25519(Default::default())
+	}
 }
 
 /// NOTE: This implementations is required by `SimpleAddressDeterminer`,
@@ -335,11 +336,7 @@ impl From<ed25519::Public> for MultiSigner {
 impl TryFrom<MultiSigner> for ed25519::Public {
 	type Error = ();
 	fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
-		if let MultiSigner::Ed25519(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSigner::Ed25519(x) = m { Ok(x) } else { Err(()) }
 	}
 }
 
@@ -352,11 +349,7 @@ impl From<sr25519::Public> for MultiSigner {
 impl TryFrom<MultiSigner> for sr25519::Public {
 	type Error = ();
 	fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
-		if let MultiSigner::Sr25519(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSigner::Sr25519(x) = m { Ok(x) } else { Err(()) }
 	}
 }
 
@@ -369,11 +362,7 @@ impl From<ecdsa::Public> for MultiSigner {
 impl TryFrom<MultiSigner> for ecdsa::Public {
 	type Error = ();
 	fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
-		if let MultiSigner::Ecdsa(x) = m {
-			Ok(x)
-		} else {
-			Err(())
-		}
+		if let MultiSigner::Ecdsa(x) = m { Ok(x) } else { Err(()) }
 	}
 }
 
@@ -392,23 +381,17 @@ impl Verify for MultiSignature {
 	type Signer = MultiSigner;
 	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &AccountId32) -> bool {
 		match (self, signer) {
-			(Self::Ed25519(ref sig), who) => match ed25519::Public::from_slice(who.as_ref()) {
-				Ok(signer) => sig.verify(msg, &signer),
-				Err(()) => false,
-			},
-			(Self::Sr25519(ref sig), who) => match sr25519::Public::from_slice(who.as_ref()) {
-				Ok(signer) => sig.verify(msg, &signer),
-				Err(()) => false,
-			},
+			(Self::Ed25519(ref sig), who) => sig.verify(msg, &ed25519::Public::from_slice(who.as_ref())),
+			(Self::Sr25519(ref sig), who) => sig.verify(msg, &sr25519::Public::from_slice(who.as_ref())),
 			(Self::Ecdsa(ref sig), who) => {
 				let m = sp_io::hashing::blake2_256(msg.get());
 				match sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m) {
 					Ok(pubkey) =>
-						&sp_io::hashing::blake2_256(pubkey.as_ref()) ==
-							<dyn AsRef<[u8; 32]>>::as_ref(who),
+						&sp_io::hashing::blake2_256(pubkey.as_ref())
+							== <dyn AsRef<[u8; 32]>>::as_ref(who),
 					_ => false,
 				}
-			},
+			}
 		}
 	}
 }
@@ -424,13 +407,10 @@ impl Verify for AnySignature {
 		let msg = msg.get();
 		sr25519::Signature::try_from(self.0.as_fixed_bytes().as_ref())
 			.map(|s| s.verify(msg, signer))
-			.unwrap_or(false) ||
-			ed25519::Signature::try_from(self.0.as_fixed_bytes().as_ref())
-				.map(|s| match ed25519::Public::from_slice(signer.as_ref()) {
-					Err(()) => false,
-					Ok(signer) => s.verify(msg, &signer),
-				})
-				.unwrap_or(false)
+			.unwrap_or(false)
+		|| ed25519::Signature::try_from(self.0.as_fixed_bytes().as_ref())
+			.map(|s| s.verify(msg, &ed25519::Public::from_slice(signer.as_ref())))
+			.unwrap_or(false)
 	}
 }
 
@@ -462,15 +442,11 @@ pub type DispatchResult = sp_std::result::Result<(), DispatchError>;
 pub type DispatchResultWithInfo<T> = sp_std::result::Result<T, DispatchErrorWithPostInfo<T>>;
 
 /// Reason why a dispatch call failed.
-#[derive(Eq, Clone, Copy, Encode, Decode, Debug, TypeInfo)]
+#[derive(Eq, Clone, Copy, Encode, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum DispatchError {
 	/// Some error occurred.
-	Other(
-		#[codec(skip)]
-		#[cfg_attr(feature = "std", serde(skip_deserializing))]
-		&'static str,
-	),
+	Other(#[codec(skip)] #[cfg_attr(feature = "std", serde(skip_deserializing))] &'static str),
 	/// Failed to lookup some data.
 	CannotLookup,
 	/// A bad origin.
@@ -490,8 +466,6 @@ pub enum DispatchError {
 	ConsumerRemaining,
 	/// There are no providers so the account cannot be created.
 	NoProviders,
-	/// There are too many consumers so the account cannot be created.
-	TooManyConsumers,
 	/// An error to do with tokens.
 	Token(TokenError),
 	/// An arithmetic error.
@@ -501,9 +475,8 @@ pub enum DispatchError {
 /// Result of a `Dispatchable` which contains the `DispatchResult` and additional information about
 /// the `Dispatchable` that is only known post dispatch.
 #[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, RuntimeDebug)]
-pub struct DispatchErrorWithPostInfo<Info>
-where
-	Info: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable,
+pub struct DispatchErrorWithPostInfo<Info> where
+	Info: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable
 {
 	/// Additional information about the `Dispatchable` which is only known post dispatch.
 	pub post_info: Info,
@@ -515,20 +488,22 @@ impl DispatchError {
 	/// Return the same error but without the attached message.
 	pub fn stripped(self) -> Self {
 		match self {
-			DispatchError::Module { index, error, message: Some(_) } =>
-				DispatchError::Module { index, error, message: None },
+			DispatchError::Module { index, error, message: Some(_) }
+				=> DispatchError::Module { index, error, message: None },
 			m => m,
 		}
 	}
 }
 
-impl<T, E> From<E> for DispatchErrorWithPostInfo<T>
-where
+impl<T, E> From<E> for DispatchErrorWithPostInfo<T> where
 	T: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable + Default,
-	E: Into<DispatchError>,
+	E: Into<DispatchError>
 {
 	fn from(error: E) -> Self {
-		Self { post_info: Default::default(), error: error.into() }
+		Self {
+			post_info: Default::default(),
+			error: error.into(),
+		}
 	}
 }
 
@@ -544,8 +519,17 @@ impl From<crate::traits::BadOrigin> for DispatchError {
 	}
 }
 
+impl From<crate::traits::StoredMapError> for DispatchError {
+	fn from(e: crate::traits::StoredMapError) -> Self {
+		match e {
+			crate::traits::StoredMapError::ConsumerRemaining => Self::ConsumerRemaining,
+			crate::traits::StoredMapError::NoProviders => Self::NoProviders,
+		}
+	}
+}
+
 /// Description of what went wrong when trying to complete an operation on a token.
-#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug, TypeInfo)]
+#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum TokenError {
 	/// Funds are unavailable.
@@ -560,8 +544,6 @@ pub enum TokenError {
 	UnknownAsset,
 	/// Funds exist but are frozen.
 	Frozen,
-	/// Operation is not supported by the asset.
-	Unsupported,
 }
 
 impl From<TokenError> for &'static str {
@@ -573,7 +555,6 @@ impl From<TokenError> for &'static str {
 			TokenError::CannotCreate => "Account cannot be created",
 			TokenError::UnknownAsset => "The asset in question is unknown",
 			TokenError::Frozen => "Funds exist but are frozen",
-			TokenError::Unsupported => "Operation is not supported by the asset",
 		}
 	}
 }
@@ -585,7 +566,7 @@ impl From<TokenError> for DispatchError {
 }
 
 /// Arithmetic errors.
-#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug, TypeInfo)]
+#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum ArithmeticError {
 	/// Underflow.
@@ -627,16 +608,14 @@ impl From<DispatchError> for &'static str {
 			DispatchError::Module { message, .. } => message.unwrap_or("Unknown module error"),
 			DispatchError::ConsumerRemaining => "Consumer remaining",
 			DispatchError::NoProviders => "No providers",
-			DispatchError::TooManyConsumers => "Too many consumers",
 			DispatchError::Token(e) => e.into(),
 			DispatchError::Arithmetic(e) => e.into(),
 		}
 	}
 }
 
-impl<T> From<DispatchErrorWithPostInfo<T>> for &'static str
-where
-	T: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable,
+impl<T> From<DispatchErrorWithPostInfo<T>> for &'static str where
+	T: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable
 {
 	fn from(err: DispatchErrorWithPostInfo<T>) -> &'static str {
 		err.error.into()
@@ -656,10 +635,9 @@ impl traits::Printable for DispatchError {
 				if let Some(msg) = message {
 					msg.print();
 				}
-			},
+			}
 			Self::ConsumerRemaining => "Consumer remaining".print(),
 			Self::NoProviders => "No providers".print(),
-			Self::TooManyConsumers => "Too many consumers".print(),
 			Self::Token(e) => {
 				"Token error: ".print();
 				<&'static str>::from(*e).print();
@@ -667,14 +645,13 @@ impl traits::Printable for DispatchError {
 			Self::Arithmetic(e) => {
 				"Arithmetic error: ".print();
 				<&'static str>::from(*e).print();
-			},
+			}
 		}
 	}
 }
 
-impl<T> traits::Printable for DispatchErrorWithPostInfo<T>
-where
-	T: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable,
+impl<T> traits::Printable for DispatchErrorWithPostInfo<T> where
+	T: Eq + PartialEq + Clone + Copy + Encode + Decode + traits::Printable
 {
 	fn print(&self) {
 		self.error.print();
@@ -731,13 +708,12 @@ pub type DispatchOutcome = Result<(), DispatchError>;
 ///
 /// Examples of reasons preventing inclusion in a block:
 /// - More block weight is required to process the extrinsic than is left in the block being built.
-///   This doesn't necessarily mean that the extrinsic is invalid, since it can still be included in
-///   the next block if it has enough spare weight available.
-/// - The sender doesn't have enough funds to pay the transaction inclusion fee. Including such a
-///   transaction in the block doesn't make sense.
+///   This doesn't necessarily mean that the extrinsic is invalid, since it can still be
+///   included in the next block if it has enough spare weight available.
+/// - The sender doesn't have enough funds to pay the transaction inclusion fee. Including such
+///   a transaction in the block doesn't make sense.
 /// - The extrinsic supplied a bad signature. This transaction won't become valid ever.
-pub type ApplyExtrinsicResult =
-	Result<DispatchOutcome, transaction_validity::TransactionValidityError>;
+pub type ApplyExtrinsicResult = Result<DispatchOutcome, transaction_validity::TransactionValidityError>;
 
 /// Same as `ApplyExtrinsicResult` but augmented with `PostDispatchInfo` on success.
 pub type ApplyExtrinsicResultWithInfo<T> =
@@ -748,7 +724,7 @@ pub type ApplyExtrinsicResultWithInfo<T> =
 pub fn verify_encoded_lazy<V: Verify, T: codec::Encode>(
 	sig: &V,
 	item: &T,
-	signer: &<V::Signer as IdentifyAccount>::AccountId,
+	signer: &<V::Signer as IdentifyAccount>::AccountId
 ) -> bool {
 	// The `Lazy<T>` trait expresses something like `X: FnMut<Output = for<'a> &'a T>`.
 	// unfortunately this is a lifetime relationship that can't
@@ -765,7 +741,10 @@ pub fn verify_encoded_lazy<V: Verify, T: codec::Encode>(
 		}
 	}
 
-	sig.verify(LazyEncode { inner: || item.encode(), encoded: None }, signer)
+	sig.verify(
+		LazyEncode { inner: || item.encode(), encoded: None },
+		signer,
+	)
 }
 
 /// Checks that `$x` is equal to `$y` with an error rate of `$error`.
@@ -801,7 +780,7 @@ macro_rules! assert_eq_error_rate {
 
 /// Simple blob to hold an extrinsic without committing to its format and ensure it is serialized
 /// correctly.
-#[derive(PartialEq, Eq, Clone, Default, Encode, Decode, TypeInfo)]
+#[derive(PartialEq, Eq, Clone, Default, Encode, Decode)]
 pub struct OpaqueExtrinsic(Vec<u8>);
 
 impl OpaqueExtrinsic {
@@ -832,20 +811,14 @@ impl sp_std::fmt::Debug for OpaqueExtrinsic {
 
 #[cfg(feature = "std")]
 impl ::serde::Serialize for OpaqueExtrinsic {
-	fn serialize<S>(&self, seq: S) -> Result<S::Ok, S::Error>
-	where
-		S: ::serde::Serializer,
-	{
+	fn serialize<S>(&self, seq: S) -> Result<S::Ok, S::Error> where S: ::serde::Serializer {
 		codec::Encode::using_encoded(&self.0, |bytes| ::sp_core::bytes::serialize(bytes, seq))
 	}
 }
 
 #[cfg(feature = "std")]
 impl<'a> ::serde::Deserialize<'a> for OpaqueExtrinsic {
-	fn deserialize<D>(de: D) -> Result<Self, D::Error>
-	where
-		D: ::serde::Deserializer<'a>,
-	{
+	fn deserialize<D>(de: D) -> Result<Self, D::Error> where D: ::serde::Deserializer<'a> {
 		let r = ::sp_core::bytes::deserialize(de)?;
 		Decode::decode(&mut &r[..])
 			.map_err(|e| ::serde::de::Error::custom(format!("Decode error: {}", e)))
@@ -916,13 +889,9 @@ impl<R> TransactionOutcome<R> {
 
 #[cfg(test)]
 mod tests {
-	use crate::traits::BlakeTwo256;
-
 	use super::*;
-	use codec::{Decode, Encode};
-	use sp_core::crypto::{Pair, UncheckedFrom};
-	use sp_io::TestExternalities;
-	use sp_state_machine::create_proof_check_backend;
+	use codec::{Encode, Decode};
+	use sp_core::crypto::Pair;
 
 	#[test]
 	fn opaque_extrinsic_serialization() {
@@ -932,11 +901,22 @@ mod tests {
 
 	#[test]
 	fn dispatch_error_encoding() {
-		let error = DispatchError::Module { index: 1, error: 2, message: Some("error message") };
+		let error = DispatchError::Module {
+			index: 1,
+			error: 2,
+			message: Some("error message"),
+		};
 		let encoded = error.encode();
 		let decoded = DispatchError::decode(&mut &encoded[..]).unwrap();
 		assert_eq!(encoded, vec![3, 1, 2]);
-		assert_eq!(decoded, DispatchError::Module { index: 1, error: 2, message: None });
+		assert_eq!(
+			decoded,
+			DispatchError::Module {
+				index: 1,
+				error: 2,
+				message: None,
+			},
+		);
 	}
 
 	#[test]
@@ -976,7 +956,7 @@ mod tests {
 		// Ignores `message` field in `Module` variant.
 		assert_eq!(
 			Module { index: 1, error: 1, message: Some("foo") },
-			Module { index: 1, error: 1, message: None },
+			Module { index: 1, error: 1, message: None},
 		);
 	}
 
@@ -1000,15 +980,17 @@ mod tests {
 	#[should_panic(expected = "Signature verification has not been called")]
 	fn batching_still_finishes_when_not_called_directly() {
 		let mut ext = sp_state_machine::BasicExternalities::default();
-		ext.register_extension(sp_core::traits::TaskExecutorExt::new(
-			sp_core::testing::TaskExecutor::new(),
-		));
+		ext.register_extension(
+			sp_core::traits::TaskExecutorExt::new(sp_core::testing::TaskExecutor::new()),
+		);
 
 		ext.execute_with(|| {
 			let _batching = SignatureBatching::start();
-			let dummy = UncheckedFrom::unchecked_from([1; 32]);
-			let dummy_sig = UncheckedFrom::unchecked_from([1; 64]);
-			sp_io::crypto::sr25519_verify(&dummy_sig, &Vec::new(), &dummy);
+			sp_io::crypto::sr25519_verify(
+				&Default::default(),
+				&Vec::new(),
+				&Default::default(),
+			);
 		});
 	}
 
@@ -1016,56 +998,13 @@ mod tests {
 	#[should_panic(expected = "Hey, I'm an error")]
 	fn batching_does_not_panic_while_thread_is_already_panicking() {
 		let mut ext = sp_state_machine::BasicExternalities::default();
-		ext.register_extension(sp_core::traits::TaskExecutorExt::new(
-			sp_core::testing::TaskExecutor::new(),
-		));
+		ext.register_extension(
+			sp_core::traits::TaskExecutorExt::new(sp_core::testing::TaskExecutor::new()),
+		);
 
 		ext.execute_with(|| {
 			let _batching = SignatureBatching::start();
 			panic!("Hey, I'm an error");
-		});
-	}
-
-	#[test]
-	fn execute_and_generate_proof_works() {
-		use codec::Encode;
-		use sp_state_machine::Backend;
-		let mut ext = TestExternalities::default();
-
-		ext.insert(b"a".to_vec(), vec![1u8; 33]);
-		ext.insert(b"b".to_vec(), vec![2u8; 33]);
-		ext.insert(b"c".to_vec(), vec![3u8; 33]);
-		ext.insert(b"d".to_vec(), vec![4u8; 33]);
-
-		let pre_root = ext.backend.root().clone();
-		let (_, proof) = ext.execute_and_prove(|| {
-			sp_io::storage::get(b"a");
-			sp_io::storage::get(b"b");
-			sp_io::storage::get(b"v");
-			sp_io::storage::get(b"d");
-		});
-
-		let compact_proof = proof.clone().into_compact_proof::<BlakeTwo256>(pre_root).unwrap();
-		let compressed_proof = zstd::stream::encode_all(&compact_proof.encode()[..], 0).unwrap();
-
-		// just an example of how you'd inspect the size of the proof.
-		println!("proof size: {:?}", proof.encoded_size());
-		println!("compact proof size: {:?}", compact_proof.encoded_size());
-		println!("zstd-compressed compact proof size: {:?}", &compressed_proof.len());
-
-		// create a new trie-backed from the proof and make sure it contains everything
-		let proof_check = create_proof_check_backend::<BlakeTwo256>(pre_root, proof).unwrap();
-		assert_eq!(proof_check.storage(b"a",).unwrap().unwrap(), vec![1u8; 33]);
-
-		let _ = ext.execute_and_prove(|| {
-			sp_io::storage::set(b"a", &vec![1u8; 44]);
-		});
-
-		// ensure that these changes are propagated to the backend.
-
-		ext.execute_with(|| {
-			assert_eq!(sp_io::storage::get(b"a").unwrap(), vec![1u8; 44]);
-			assert_eq!(sp_io::storage::get(b"b").unwrap(), vec![2u8; 33]);
 		});
 	}
 }

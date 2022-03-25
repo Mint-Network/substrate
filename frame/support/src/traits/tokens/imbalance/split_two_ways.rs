@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,24 +17,29 @@
 
 //! Means for splitting an imbalance into two and hanlding them differently.
 
-use super::super::imbalance::{Imbalance, OnUnbalanced};
+use sp_std::{ops::Div, marker::PhantomData};
 use sp_core::u32_trait::Value as U32;
 use sp_runtime::traits::Saturating;
-use sp_std::{marker::PhantomData, ops::Div};
+use super::super::imbalance::{Imbalance, OnUnbalanced};
 
 /// Split an unbalanced amount two ways between a common divisor.
-pub struct SplitTwoWays<Balance, Imbalance, Part1, Target1, Part2, Target2>(
-	PhantomData<(Balance, Imbalance, Part1, Target1, Part2, Target2)>,
-);
+pub struct SplitTwoWays<
+	Balance,
+	Imbalance,
+	Part1,
+	Target1,
+	Part2,
+	Target2,
+>(PhantomData<(Balance, Imbalance, Part1, Target1, Part2, Target2)>);
 
 impl<
-		Balance: From<u32> + Saturating + Div<Output = Balance>,
-		I: Imbalance<Balance>,
-		Part1: U32,
-		Target1: OnUnbalanced<I>,
-		Part2: U32,
-		Target2: OnUnbalanced<I>,
-	> OnUnbalanced<I> for SplitTwoWays<Balance, I, Part1, Target1, Part2, Target2>
+	Balance: From<u32> + Saturating + Div<Output=Balance>,
+	I: Imbalance<Balance>,
+	Part1: U32,
+	Target1: OnUnbalanced<I>,
+	Part2: U32,
+	Target2: OnUnbalanced<I>,
+> OnUnbalanced<I> for SplitTwoWays<Balance, I, Part1, Target1, Part2, Target2>
 {
 	fn on_nonzero_unbalanced(amount: I) {
 		let total: u32 = Part1::VALUE + Part2::VALUE;

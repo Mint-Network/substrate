@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,8 @@
 //! runtime implementation to require an inherent for each block or to make it optional. Inherents
 //! are mainly used to pass data from the block producer to the runtime. So, inherents require some
 //! part that is running on the client side and some part that is running on the runtime side. Any
-//! data that is required by an inherent is passed as [`InherentData`] from the client to the
-//! runtime when the inherents are constructed.
+//! data that is required by an inherent is passed as [`InherentData`] from the client to the runtime
+//! when the inherents are constructed.
 //!
 //! The process of constructing and applying inherents is the following:
 //!
@@ -140,7 +140,7 @@
 //! 	let block_production = if is_validator {
 //! 		// For block production we want to provide our inherent data provider
 //! 		cool_consensus_block_production(|_parent, ()| async {
-//! 			Ok(InherentDataProvider)
+//!			Ok(InherentDataProvider)
 //! 		}).boxed()
 //! 	} else {
 //! 		futures::future::pending().boxed()
@@ -162,12 +162,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 
-use codec::{Decode, Encode};
+use codec::{Encode, Decode};
 
-use sp_std::{
-	collections::btree_map::{BTreeMap, Entry, IntoIter},
-	vec::Vec,
-};
+use sp_std::{collections::btree_map::{BTreeMap, IntoIter, Entry}, vec::Vec};
 
 #[cfg(feature = "std")]
 mod client_side;
@@ -207,7 +204,7 @@ pub type InherentIdentifier = [u8; 8];
 #[derive(Clone, Default, Encode, Decode)]
 pub struct InherentData {
 	/// All inherent data encoded with parity-scale-codec and an identifier.
-	data: BTreeMap<InherentIdentifier, Vec<u8>>,
+	data: BTreeMap<InherentIdentifier, Vec<u8>>
 }
 
 impl InherentData {
@@ -234,14 +231,20 @@ impl InherentData {
 				entry.insert(inherent.encode());
 				Ok(())
 			},
-			Entry::Occupied(_) => Err(Error::InherentDataExists(identifier)),
+			Entry::Occupied(_) => {
+				Err(Error::InherentDataExists(identifier))
+			}
 		}
 	}
 
 	/// Replace the data for an inherent.
 	///
 	/// If it does not exist, the data is just inserted.
-	pub fn replace_data<I: codec::Encode>(&mut self, identifier: InherentIdentifier, inherent: &I) {
+	pub fn replace_data<I: codec::Encode>(
+		&mut self,
+		identifier: InherentIdentifier,
+		inherent: &I,
+	) {
 		self.data.insert(identifier, inherent.encode());
 	}
 
@@ -257,10 +260,11 @@ impl InherentData {
 		identifier: &InherentIdentifier,
 	) -> Result<Option<I>, Error> {
 		match self.data.get(identifier) {
-			Some(inherent) => I::decode(&mut &inherent[..])
-				.map_err(|e| Error::DecodingFailed(e, *identifier))
-				.map(Some),
-			None => Ok(None),
+			Some(inherent) =>
+				I::decode(&mut &inherent[..])
+					.map_err(|e| Error::DecodingFailed(e, *identifier))
+					.map(Some),
+			None => Ok(None)
 		}
 	}
 
@@ -288,7 +292,11 @@ pub struct CheckInherentsResult {
 
 impl Default for CheckInherentsResult {
 	fn default() -> Self {
-		Self { okay: true, errors: InherentData::new(), fatal_error: false }
+		Self {
+			okay: true,
+			errors: InherentData::new(),
+			fatal_error: false,
+		}
 	}
 }
 
@@ -362,8 +370,8 @@ impl CheckInherentsResult {
 impl PartialEq for CheckInherentsResult {
 	fn eq(&self, other: &Self) -> bool {
 		self.fatal_error == other.fatal_error &&
-			self.okay == other.okay &&
-			self.errors.data == other.errors.data
+		self.okay == other.okay &&
+		self.errors.data == other.errors.data
 	}
 }
 
@@ -399,7 +407,7 @@ impl<E: codec::Encode> IsFatalError for MakeFatalError<E> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use codec::{Decode, Encode};
+	use codec::{Encode, Decode};
 
 	const TEST_INHERENT_0: InherentIdentifier = *b"testinh0";
 	const TEST_INHERENT_1: InherentIdentifier = *b"testinh1";
@@ -462,7 +470,10 @@ mod tests {
 
 		let inherent_data = provider.create_inherent_data().unwrap();
 
-		assert_eq!(inherent_data.get_data::<u32>(&TEST_INHERENT_0).unwrap().unwrap(), 42u32);
+		assert_eq!(
+			inherent_data.get_data::<u32>(&TEST_INHERENT_0).unwrap().unwrap(),
+			42u32,
+		);
 	}
 
 	#[test]

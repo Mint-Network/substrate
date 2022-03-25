@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,21 +17,9 @@
 
 //! Smaller traits used in FRAME which don't need their own file.
 
+use sp_runtime::traits::{StoredMapError, Block as BlockT};
+use sp_arithmetic::traits::AtLeast32Bit;
 use crate::dispatch::Parameter;
-use codec::{CompactLen, Decode, DecodeAll, Encode, EncodeLike, Input, MaxEncodedLen};
-use scale_info::{build::Fields, meta_type, Path, Type, TypeInfo, TypeParameter};
-use sp_runtime::{traits::Block as BlockT, DispatchError};
-use sp_std::{cmp::Ordering, prelude::*};
-
-/// Try and collect into a collection `C`.
-pub trait TryCollect<C> {
-	type Error;
-	/// Consume self and try to collect the results into `C`.
-	///
-	/// This is useful in preventing the undesirable `.collect().try_into()` call chain on
-	/// collections that need to be converted into a bounded type (e.g. `BoundedVec`).
-	fn try_collect(self) -> Result<C, Self::Error>;
-}
 
 /// Anything that can have a `::len()` method.
 pub trait Len {
@@ -39,10 +27,7 @@ pub trait Len {
 	fn len(&self) -> usize;
 }
 
-impl<T: IntoIterator + Clone> Len for T
-where
-	<T as IntoIterator>::IntoIter: ExactSizeIterator,
-{
+impl<T: IntoIterator + Clone,> Len for T where <T as IntoIterator>::IntoIter: ExactSizeIterator {
 	fn len(&self) -> usize {
 		self.clone().into_iter().len()
 	}
@@ -57,9 +42,7 @@ pub trait Get<T> {
 }
 
 impl<T: Default> Get<T> for () {
-	fn get() -> T {
-		T::default()
-	}
+	fn get() -> T { T::default() }
 }
 
 /// Implement Get by returning Default for any type that implements Default.
@@ -70,44 +53,25 @@ impl<T: Default> Get<T> for GetDefault {
 	}
 }
 
-macro_rules! impl_const_get {
-	($name:ident, $t:ty) => {
-		pub struct $name<const T: $t>;
-		impl<const T: $t> Get<$t> for $name<T> {
-			fn get() -> $t {
-				T
-			}
-		}
-		impl<const T: $t> Get<Option<$t>> for $name<T> {
-			fn get() -> Option<$t> {
-				Some(T)
-			}
-		}
-	};
+/// Implement `Get<u32>` and `Get<Option<u32>>` using the given const.
+pub struct ConstU32<const T: u32>;
+
+impl<const T: u32> Get<u32> for ConstU32<T> {
+	fn get() -> u32 {
+		T
+	}
 }
 
-impl_const_get!(ConstBool, bool);
-impl_const_get!(ConstU8, u8);
-impl_const_get!(ConstU16, u16);
-impl_const_get!(ConstU32, u32);
-impl_const_get!(ConstU64, u64);
-impl_const_get!(ConstU128, u128);
-impl_const_get!(ConstI8, i8);
-impl_const_get!(ConstI16, i16);
-impl_const_get!(ConstI32, i32);
-impl_const_get!(ConstI64, i64);
-impl_const_get!(ConstI128, i128);
+impl<const T: u32> Get<Option<u32>> for ConstU32<T> {
+	fn get() -> Option<u32> {
+		Some(T)
+	}
+}
 
 /// A type for which some values make sense to be able to drop without further consideration.
 pub trait TryDrop: Sized {
 	/// Drop an instance cleanly. Only works if its value represents "no-operation".
 	fn try_drop(self) -> Result<(), Self>;
-}
-
-impl TryDrop for () {
-	fn try_drop(self) -> Result<(), Self> {
-		Ok(())
-	}
 }
 
 /// Return type used when we need to return one of two items, each of the opposite direction or
@@ -159,10 +123,7 @@ impl<A, B> SameOrOther<A, B> {
 		}
 	}
 
-	pub fn same(self) -> Result<A, B>
-	where
-		A: Default,
-	{
+	pub fn same(self) -> Result<A, B> where A: Default {
 		match self {
 			SameOrOther::Same(a) => Ok(a),
 			SameOrOther::None => Ok(A::default()),
@@ -170,10 +131,7 @@ impl<A, B> SameOrOther<A, B> {
 		}
 	}
 
-	pub fn other(self) -> Result<B, A>
-	where
-		B: Default,
-	{
+	pub fn other(self) -> Result<B, A> where B: Default {
 		match self {
 			SameOrOther::Same(a) => Err(a),
 			SameOrOther::None => Ok(B::default()),
@@ -199,20 +157,16 @@ pub trait OnKilledAccount<AccountId> {
 /// A simple, generic one-parameter event notifier/handler.
 pub trait HandleLifetime<T> {
 	/// An account was created.
-	fn created(_t: &T) -> Result<(), DispatchError> {
-		Ok(())
-	}
+	fn created(_t: &T) -> Result<(), StoredMapError> { Ok(()) }
 
 	/// An account was killed.
-	fn killed(_t: &T) -> Result<(), DispatchError> {
-		Ok(())
-	}
+	fn killed(_t: &T) -> Result<(), StoredMapError> { Ok(()) }
 }
 
 impl<T> HandleLifetime<T> for () {}
 
 pub trait Time {
-	type Moment: sp_arithmetic::traits::AtLeast32Bit + Parameter + Default + Copy;
+	type Moment: AtLeast32Bit + Parameter + Default + Copy;
 
 	fn now() -> Self::Moment;
 }
@@ -241,18 +195,10 @@ pub trait IsType<T>: Into<T> + From<T> {
 }
 
 impl<T> IsType<T> for T {
-	fn from_ref(t: &T) -> &Self {
-		t
-	}
-	fn into_ref(&self) -> &T {
-		self
-	}
-	fn from_mut(t: &mut T) -> &mut Self {
-		t
-	}
-	fn into_mut(&mut self) -> &mut T {
-		self
-	}
+	fn from_ref(t: &T) -> &Self { t }
+	fn into_ref(&self) -> &T { self }
+	fn from_mut(t: &mut T) -> &mut Self { t }
+	fn into_mut(&mut self) -> &mut T { self }
 }
 
 /// Something that can be checked to be a of sub type `T`.
@@ -309,33 +255,12 @@ pub trait IsSubType<T> {
 pub trait ExecuteBlock<Block: BlockT> {
 	/// Execute the given `block`.
 	///
-	/// This will execute all extrinsics in the block and check that the resulting header is
-	/// correct.
+	/// This will execute all extrinsics in the block and check that the resulting header is correct.
 	///
 	/// # Panic
 	///
 	/// Panics when an extrinsics panics or the resulting header doesn't match the expected header.
 	fn execute_block(block: Block);
-}
-
-/// Something that can compare privileges of two origins.
-pub trait PrivilegeCmp<Origin> {
-	/// Compare the `left` to the `right` origin.
-	///
-	/// The returned ordering should be from the pov of the `left` origin.
-	///
-	/// Should return `None` when it can not compare the given origins.
-	fn cmp_privilege(left: &Origin, right: &Origin) -> Option<Ordering>;
-}
-
-/// Implementation of [`PrivilegeCmp`] that only checks for equal origins.
-///
-/// This means it will either return [`Ordering::Equal`] or `None`.
-pub struct EqualPrivilegeOnly;
-impl<Origin: PartialEq> PrivilegeCmp<Origin> for EqualPrivilegeOnly {
-	fn cmp_privilege(left: &Origin, right: &Origin) -> Option<Ordering> {
-		(left == right).then(|| Ordering::Equal)
-	}
 }
 
 /// Off-chain computation trait.
@@ -359,7 +284,7 @@ pub trait OffchainWorker<BlockNumber> {
 	fn offchain_worker(_n: BlockNumber) {}
 }
 
-/// Some amount of backing from a group. The precise definition of what it means to "back" something
+/// Some amount of backing from a group. The precise defintion of what it means to "back" something
 /// is left flexible.
 pub struct Backing {
 	/// The number of members of the group that back some motion.
@@ -374,6 +299,8 @@ pub trait GetBacking {
 	/// implicit motion. `None` if it does not.
 	fn get_backing(&self) -> Option<Backing>;
 }
+
+
 
 /// A trait to ensure the inherent are before non-inherent in a block.
 ///
@@ -392,8 +319,7 @@ pub trait ExtrinsicCall: sp_runtime::traits::Extrinsic {
 }
 
 #[cfg(feature = "std")]
-impl<Call, Extra> ExtrinsicCall for sp_runtime::testing::TestXt<Call, Extra>
-where
+impl<Call, Extra> ExtrinsicCall for sp_runtime::testing::TestXt<Call, Extra> where
 	Call: codec::Codec + Sync + Send,
 {
 	fn call(&self) -> &Self::Call {
@@ -402,299 +328,11 @@ where
 }
 
 impl<Address, Call, Signature, Extra> ExtrinsicCall
-	for sp_runtime::generic::UncheckedExtrinsic<Address, Call, Signature, Extra>
+for sp_runtime::generic::UncheckedExtrinsic<Address, Call, Signature, Extra>
 where
 	Extra: sp_runtime::traits::SignedExtension,
 {
 	fn call(&self) -> &Self::Call {
 		&self.function
-	}
-}
-
-/// Something that can estimate the fee of a (frame-based) call.
-///
-/// Typically, the same pallet that will charge transaction fees will implement this.
-pub trait EstimateCallFee<Call, Balance> {
-	/// Estimate the fee of this call.
-	///
-	/// The dispatch info and the length is deduced from the call. The post info can optionally be
-	/// provided.
-	fn estimate_call_fee(call: &Call, post_info: crate::weights::PostDispatchInfo) -> Balance;
-}
-
-// Useful for building mocks.
-#[cfg(feature = "std")]
-impl<Call, Balance: From<u32>, const T: u32> EstimateCallFee<Call, Balance> for ConstU32<T> {
-	fn estimate_call_fee(_: &Call, _: crate::weights::PostDispatchInfo) -> Balance {
-		T.into()
-	}
-}
-
-/// A wrapper for any type `T` which implement encode/decode in a way compatible with `Vec<u8>`.
-///
-/// The encoding is the encoding of `T` prepended with the compact encoding of its size in bytes.
-/// Thus the encoded value can be decoded as a `Vec<u8>`.
-#[derive(Debug, Eq, PartialEq, Default, Clone)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct WrapperOpaque<T>(pub T);
-
-impl<T: Encode> EncodeLike for WrapperOpaque<T> {}
-impl<T: Encode> EncodeLike<WrapperKeepOpaque<T>> for WrapperOpaque<T> {}
-
-impl<T: Encode> Encode for WrapperOpaque<T> {
-	fn size_hint(&self) -> usize {
-		self.0.size_hint().saturating_add(<codec::Compact<u32>>::max_encoded_len())
-	}
-
-	fn encode_to<O: codec::Output + ?Sized>(&self, dest: &mut O) {
-		self.0.encode().encode_to(dest);
-	}
-
-	fn encode(&self) -> Vec<u8> {
-		self.0.encode().encode()
-	}
-
-	fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
-		self.0.encode().using_encoded(f)
-	}
-}
-
-impl<T: Decode> Decode for WrapperOpaque<T> {
-	fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
-		Ok(Self(T::decode(&mut &<Vec<u8>>::decode(input)?[..])?))
-	}
-
-	fn skip<I: Input>(input: &mut I) -> Result<(), codec::Error> {
-		<Vec<u8>>::skip(input)
-	}
-}
-
-impl<T> From<T> for WrapperOpaque<T> {
-	fn from(t: T) -> Self {
-		Self(t)
-	}
-}
-
-impl<T: MaxEncodedLen> MaxEncodedLen for WrapperOpaque<T> {
-	fn max_encoded_len() -> usize {
-		let t_max_len = T::max_encoded_len();
-
-		// See scale encoding https://docs.substrate.io/v3/advanced/scale-codec
-		if t_max_len < 64 {
-			t_max_len + 1
-		} else if t_max_len < 2usize.pow(14) {
-			t_max_len + 2
-		} else if t_max_len < 2usize.pow(30) {
-			t_max_len + 4
-		} else {
-			<codec::Compact<u32>>::max_encoded_len().saturating_add(T::max_encoded_len())
-		}
-	}
-}
-
-impl<T: TypeInfo + 'static> TypeInfo for WrapperOpaque<T> {
-	type Identity = Self;
-	fn type_info() -> Type {
-		Type::builder()
-			.path(Path::new("WrapperOpaque", module_path!()))
-			.type_params(vec![TypeParameter::new("T", Some(meta_type::<T>()))])
-			.composite(
-				Fields::unnamed()
-					.field(|f| f.compact::<u32>())
-					.field(|f| f.ty::<T>().type_name("T")),
-			)
-	}
-}
-
-/// A wrapper for any type `T` which implement encode/decode in a way compatible with `Vec<u8>`.
-///
-/// This type is similar to [`WrapperOpaque`], but it differs in the way it stores the type `T`.
-/// While [`WrapperOpaque`] stores the decoded type, the [`WrapperKeepOpaque`] stores the type only
-/// in its opaque format, aka as a `Vec<u8>`. To access the real type `T` [`Self::try_decode`] needs
-/// to be used.
-#[derive(Debug, Eq, PartialEq, Default, Clone)]
-pub struct WrapperKeepOpaque<T> {
-	data: Vec<u8>,
-	_phantom: sp_std::marker::PhantomData<T>,
-}
-
-impl<T: Decode> WrapperKeepOpaque<T> {
-	/// Try to decode the wrapped type from the inner `data`.
-	///
-	/// Returns `None` if the decoding failed.
-	pub fn try_decode(&self) -> Option<T> {
-		T::decode_all(&mut &self.data[..]).ok()
-	}
-
-	/// Returns the length of the encoded `T`.
-	pub fn encoded_len(&self) -> usize {
-		self.data.len()
-	}
-
-	/// Returns the encoded data.
-	pub fn encoded(&self) -> &[u8] {
-		&self.data
-	}
-
-	/// Create from the given encoded `data`.
-	pub fn from_encoded(data: Vec<u8>) -> Self {
-		Self { data, _phantom: sp_std::marker::PhantomData }
-	}
-}
-
-impl<T: Encode> EncodeLike for WrapperKeepOpaque<T> {}
-impl<T: Encode> EncodeLike<WrapperOpaque<T>> for WrapperKeepOpaque<T> {}
-
-impl<T: Encode> Encode for WrapperKeepOpaque<T> {
-	fn size_hint(&self) -> usize {
-		self.data.len() + codec::Compact::<u32>::compact_len(&(self.data.len() as u32))
-	}
-
-	fn encode_to<O: codec::Output + ?Sized>(&self, dest: &mut O) {
-		self.data.encode_to(dest);
-	}
-
-	fn encode(&self) -> Vec<u8> {
-		self.data.encode()
-	}
-
-	fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
-		self.data.using_encoded(f)
-	}
-}
-
-impl<T: Decode> Decode for WrapperKeepOpaque<T> {
-	fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
-		Ok(Self { data: Vec::<u8>::decode(input)?, _phantom: sp_std::marker::PhantomData })
-	}
-
-	fn skip<I: Input>(input: &mut I) -> Result<(), codec::Error> {
-		<Vec<u8>>::skip(input)
-	}
-}
-
-impl<T: MaxEncodedLen> MaxEncodedLen for WrapperKeepOpaque<T> {
-	fn max_encoded_len() -> usize {
-		WrapperOpaque::<T>::max_encoded_len()
-	}
-}
-
-impl<T: TypeInfo + 'static> TypeInfo for WrapperKeepOpaque<T> {
-	type Identity = Self;
-	fn type_info() -> Type {
-		Type::builder()
-			.path(Path::new("WrapperKeepOpaque", module_path!()))
-			.type_params(vec![TypeParameter::new("T", Some(meta_type::<T>()))])
-			.composite(
-				Fields::unnamed()
-					.field(|f| f.compact::<u32>())
-					.field(|f| f.ty::<T>().type_name("T")),
-			)
-	}
-}
-
-/// A interface for looking up preimages from their hash on chain.
-pub trait PreimageProvider<Hash> {
-	/// Returns whether a preimage exists for a given hash.
-	///
-	/// A value of `true` implies that `get_preimage` is `Some`.
-	fn have_preimage(hash: &Hash) -> bool;
-
-	/// Returns the preimage for a given hash.
-	fn get_preimage(hash: &Hash) -> Option<Vec<u8>>;
-
-	/// Returns whether a preimage request exists for a given hash.
-	fn preimage_requested(hash: &Hash) -> bool;
-
-	/// Request that someone report a preimage. Providers use this to optimise the economics for
-	/// preimage reporting.
-	fn request_preimage(hash: &Hash);
-
-	/// Cancel a previous preimage request.
-	fn unrequest_preimage(hash: &Hash);
-}
-
-impl<Hash> PreimageProvider<Hash> for () {
-	fn have_preimage(_: &Hash) -> bool {
-		false
-	}
-	fn get_preimage(_: &Hash) -> Option<Vec<u8>> {
-		None
-	}
-	fn preimage_requested(_: &Hash) -> bool {
-		false
-	}
-	fn request_preimage(_: &Hash) {}
-	fn unrequest_preimage(_: &Hash) {}
-}
-
-/// A interface for managing preimages to hashes on chain.
-///
-/// Note that this API does not assume any underlying user is calling, and thus
-/// does not handle any preimage ownership or fees. Other system level logic that
-/// uses this API should implement that on their own side.
-pub trait PreimageRecipient<Hash>: PreimageProvider<Hash> {
-	/// Maximum size of a preimage.
-	type MaxSize: Get<u32>;
-
-	/// Store the bytes of a preimage on chain.
-	fn note_preimage(bytes: crate::BoundedVec<u8, Self::MaxSize>);
-
-	/// Clear a previously noted preimage. This is infallible and should be treated more like a
-	/// hint - if it was not previously noted or if it is now requested, then this will not do
-	/// anything.
-	fn unnote_preimage(hash: &Hash);
-}
-
-impl<Hash> PreimageRecipient<Hash> for () {
-	type MaxSize = ();
-	fn note_preimage(_: crate::BoundedVec<u8, Self::MaxSize>) {}
-	fn unnote_preimage(_: &Hash) {}
-}
-
-#[cfg(test)]
-mod test {
-	use super::*;
-
-	#[test]
-	fn test_opaque_wrapper() {
-		let encoded = WrapperOpaque(3u32).encode();
-		assert_eq!(encoded, [codec::Compact(4u32).encode(), 3u32.to_le_bytes().to_vec()].concat());
-		let vec_u8 = <Vec<u8>>::decode(&mut &encoded[..]).unwrap();
-		let decoded_from_vec_u8 = u32::decode(&mut &vec_u8[..]).unwrap();
-		assert_eq!(decoded_from_vec_u8, 3u32);
-		let decoded = <WrapperOpaque<u32>>::decode(&mut &encoded[..]).unwrap();
-		assert_eq!(decoded.0, 3u32);
-
-		assert_eq!(<WrapperOpaque<[u8; 63]>>::max_encoded_len(), 63 + 1);
-		assert_eq!(
-			<WrapperOpaque<[u8; 63]>>::max_encoded_len(),
-			WrapperOpaque([0u8; 63]).encode().len()
-		);
-
-		assert_eq!(<WrapperOpaque<[u8; 64]>>::max_encoded_len(), 64 + 2);
-		assert_eq!(
-			<WrapperOpaque<[u8; 64]>>::max_encoded_len(),
-			WrapperOpaque([0u8; 64]).encode().len()
-		);
-
-		assert_eq!(
-			<WrapperOpaque<[u8; 2usize.pow(14) - 1]>>::max_encoded_len(),
-			2usize.pow(14) - 1 + 2
-		);
-		assert_eq!(<WrapperOpaque<[u8; 2usize.pow(14)]>>::max_encoded_len(), 2usize.pow(14) + 4);
-	}
-
-	#[test]
-	fn test_keep_opaque_wrapper() {
-		let data = 3u32.encode().encode();
-
-		let keep_opaque = WrapperKeepOpaque::<u32>::decode(&mut &data[..]).unwrap();
-		keep_opaque.try_decode().unwrap();
-
-		let data = WrapperOpaque(50u32).encode();
-		let decoded = WrapperKeepOpaque::<u32>::decode(&mut &data[..]).unwrap();
-		let data = decoded.encode();
-		WrapperOpaque::<u32>::decode(&mut &data[..]).unwrap();
 	}
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,18 +28,15 @@ macro_rules! convert_args {
 macro_rules! gen_signature {
 	( ( $( $params: ty ),* ) ) => (
 		{
-			pwasm_utils::parity_wasm::elements::FunctionType::new(
-				convert_args!($($params),*), vec![],
-			)
+			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), vec![])
 		}
 	);
 
 	( ( $( $params: ty ),* ) -> $returns: ty ) => (
 		{
-			pwasm_utils::parity_wasm::elements::FunctionType::new(
-				convert_args!($($params),*),
-				vec![{use $crate::wasm::env_def::ConvertibleToWasm; <$returns>::VALUE_TYPE}],
-			)
+			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), vec![{
+				use $crate::wasm::env_def::ConvertibleToWasm; <$returns>::VALUE_TYPE
+			}])
 		}
 	);
 }
@@ -54,6 +51,10 @@ macro_rules! gen_signature_dispatch {
 		( $ctx:ident $( , $names:ident : $params:ty )* ) $( -> $returns:ty )* , $($rest:tt)*
 	) => {
 		let module = stringify!($module).as_bytes();
+		#[cfg(not(feature = "unstable-interface"))]
+		if module == b"__unstable__" {
+			return false;
+		}
 		if module == $needle_module && stringify!($name).as_bytes() == $needle_name {
 			let signature = gen_signature!( ( $( $params ),* ) $( -> $returns )* );
 			if $needle_sig == &signature {
@@ -217,16 +218,7 @@ macro_rules! define_env {
 		pub struct $init_name;
 
 		impl $crate::wasm::env_def::ImportSatisfyCheck for $init_name {
-			fn can_satisfy(
-				module: &[u8],
-				name: &[u8],
-				func_type: &pwasm_utils::parity_wasm::elements::FunctionType,
-			) -> bool
-			{
-				#[cfg(not(feature = "unstable-interface"))]
-				if module == b"__unstable__" {
-					return false;
-				}
+			fn can_satisfy(module: &[u8], name: &[u8], func_type: &parity_wasm::elements::FunctionType) -> bool {
 				gen_signature_dispatch!(
 					module, name, func_type ;
 					$( $module, $name ( $ctx $(, $names : $params )* ) $( -> $returns )* , )*
@@ -255,14 +247,15 @@ macro_rules! define_env {
 
 #[cfg(test)]
 mod tests {
-	use crate::{
-		exec::Ext,
-		wasm::{runtime::TrapReason, tests::MockExt, Runtime},
-		Weight,
-	};
-	use pwasm_utils::parity_wasm::elements::{FunctionType, ValueType};
+	use parity_wasm::elements::FunctionType;
+	use parity_wasm::elements::ValueType;
 	use sp_runtime::traits::Zero;
 	use sp_sandbox::{ReturnValue, Value};
+	use crate::{
+		Weight,
+		wasm::{Runtime, runtime::TrapReason, tests::MockExt},
+		exec::Ext,
+	};
 
 	struct TestRuntime {
 		value: u32,
@@ -333,15 +326,16 @@ mod tests {
 				Err(TrapReason::Termination)
 			}
 		});
-		let _f: fn(
-			&mut Runtime<MockExt>,
-			&[sp_sandbox::Value],
-		) -> Result<sp_sandbox::ReturnValue, sp_sandbox::HostError> = seal_gas::<MockExt>;
+		let _f: fn(&mut Runtime<MockExt>, &[sp_sandbox::Value])
+			-> Result<sp_sandbox::ReturnValue, sp_sandbox::HostError> = seal_gas::<MockExt>;
 	}
 
 	#[test]
 	fn macro_gen_signature() {
-		assert_eq!(gen_signature!((i32)), FunctionType::new(vec![ValueType::I32], vec![]));
+		assert_eq!(
+			gen_signature!((i32)),
+			FunctionType::new(vec![ValueType::I32], vec![]),
+		);
 
 		assert_eq!(
 			gen_signature!( (i32, u32) -> u32 ),
@@ -386,11 +380,11 @@ mod tests {
 			},
 		);
 
-		assert!(Env::can_satisfy(
-			b"seal0",
-			b"seal_gas",
-			&FunctionType::new(vec![ValueType::I32], vec![])
-		));
-		assert!(!Env::can_satisfy(b"seal0", b"not_exists", &FunctionType::new(vec![], vec![])));
+		assert!(
+			Env::can_satisfy(b"seal0", b"seal_gas",&FunctionType::new(vec![ValueType::I32], vec![]))
+		);
+		assert!(
+			!Env::can_satisfy(b"seal0", b"not_exists", &FunctionType::new(vec![], vec![]))
+		);
 	}
 }

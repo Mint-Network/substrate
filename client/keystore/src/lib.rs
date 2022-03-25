@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -19,9 +19,9 @@
 //! Keystore (and session key management) for ed25519 based chains like Polkadot.
 
 #![warn(missing_docs)]
+use std::io;
 use sp_core::crypto::KeyTypeId;
 use sp_keystore::Error as TraitError;
-use std::io;
 
 /// Local keystore implementation
 mod local;
@@ -35,22 +35,19 @@ pub enum Error {
 	/// JSON error.
 	Json(serde_json::Error),
 	/// Invalid password.
-	#[display(
-		fmt = "Requested public key and public key of the loaded private key do not match. \n
-			This means either that the keystore password is incorrect or that the private key was stored under a wrong public key."
-	)]
-	PublicKeyMismatch,
+	#[display(fmt="Invalid password")]
+	InvalidPassword,
 	/// Invalid BIP39 phrase
-	#[display(fmt = "Invalid recovery phrase (BIP39) data")]
+	#[display(fmt="Invalid recovery phrase (BIP39) data")]
 	InvalidPhrase,
 	/// Invalid seed
-	#[display(fmt = "Invalid seed")]
+	#[display(fmt="Invalid seed")]
 	InvalidSeed,
 	/// Public key type is not supported
-	#[display(fmt = "Key crypto type is not supported")]
+	#[display(fmt="Key crypto type is not supported")]
 	KeyNotSupported(KeyTypeId),
 	/// Keystore unavailable
-	#[display(fmt = "Keystore unavailable")]
+	#[display(fmt="Keystore unavailable")]
 	Unavailable,
 }
 
@@ -61,8 +58,9 @@ impl From<Error> for TraitError {
 	fn from(error: Error) -> Self {
 		match error {
 			Error::KeyNotSupported(id) => TraitError::KeyNotSupported(id),
-			Error::InvalidSeed | Error::InvalidPhrase | Error::PublicKeyMismatch =>
-				TraitError::ValidationError(error.to_string()),
+			Error::InvalidSeed | Error::InvalidPhrase | Error::InvalidPassword => {
+				TraitError::ValidationError(error.to_string())
+			},
 			Error::Unavailable => TraitError::Unavailable,
 			Error::Io(e) => TraitError::Other(e.to_string()),
 			Error::Json(e) => TraitError::Other(e.to_string()),
@@ -79,3 +77,4 @@ impl std::error::Error for Error {
 		}
 	}
 }
+

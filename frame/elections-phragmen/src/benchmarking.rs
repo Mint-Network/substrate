@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,12 +21,9 @@
 
 use super::*;
 
-use frame_benchmarking::{account, benchmarks, whitelist, BenchmarkError, BenchmarkResult};
-use frame_support::{
-	dispatch::{DispatchResultWithPostInfo, UnfilteredDispatchable},
-	traits::OnInitialize,
-};
 use frame_system::RawOrigin;
+use frame_benchmarking::{benchmarks, account, whitelist, impl_benchmark_test_suite};
+use frame_support::{traits::OnInitialize, dispatch::DispatchResultWithPostInfo};
 
 use crate::Pallet as Elections;
 
@@ -65,34 +62,28 @@ fn candidate_count<T: Config>() -> u32 {
 }
 
 /// Add `c` new candidates.
-fn submit_candidates<T: Config>(
-	c: u32,
-	prefix: &'static str,
-) -> Result<Vec<T::AccountId>, &'static str> {
-	(0..c)
-		.map(|i| {
-			let account = endowed_account::<T>(prefix, i);
-			<Elections<T>>::submit_candidacy(
-				RawOrigin::Signed(account.clone()).into(),
-				candidate_count::<T>(),
-			)
-			.map_err(|_| "failed to submit candidacy")?;
-			Ok(account)
-		})
-		.collect::<Result<_, _>>()
+fn submit_candidates<T: Config>(c: u32, prefix: &'static str)
+	-> Result<Vec<T::AccountId>, &'static str>
+{
+	(0..c).map(|i| {
+		let account = endowed_account::<T>(prefix, i);
+		<Elections<T>>::submit_candidacy(
+			RawOrigin::Signed(account.clone()).into(),
+			candidate_count::<T>(),
+		).map_err(|_| "failed to submit candidacy")?;
+		Ok(account)
+	}).collect::<Result<_, _>>()
 }
 
 /// Add `c` new candidates with self vote.
-fn submit_candidates_with_self_vote<T: Config>(
-	c: u32,
-	prefix: &'static str,
-) -> Result<Vec<T::AccountId>, &'static str> {
+fn submit_candidates_with_self_vote<T: Config>(c: u32, prefix: &'static str)
+	-> Result<Vec<T::AccountId>, &'static str>
+{
 	let candidates = submit_candidates::<T>(c, prefix)?;
 	let stake = default_stake::<T>(BALANCE_FACTOR);
-	let _ = candidates
-		.iter()
-		.map(|c| submit_voter::<T>(c.clone(), vec![c.clone()], stake).map(|_| ()))
-		.collect::<Result<_, _>>()?;
+	let _ = candidates.iter().map(|c|
+		submit_voter::<T>(c.clone(), vec![c.clone()], stake).map(|_| ())
+	).collect::<Result<_, _>>()?;
 	Ok(candidates)
 }
 
@@ -107,16 +98,18 @@ fn submit_voter<T: Config>(
 
 /// create `num_voter` voters who randomly vote for at most `votes` of `all_candidates` if
 /// available.
-fn distribute_voters<T: Config>(
-	mut all_candidates: Vec<T::AccountId>,
-	num_voters: u32,
-	votes: usize,
-) -> Result<(), &'static str> {
+fn distribute_voters<T: Config>(mut all_candidates: Vec<T::AccountId>, num_voters: u32, votes: usize)
+	-> Result<(), &'static str>
+{
 	let stake = default_stake::<T>(BALANCE_FACTOR);
 	for i in 0..num_voters {
 		// to ensure that votes are different
 		all_candidates.rotate_left(1);
-		let votes = all_candidates.iter().cloned().take(votes).collect::<Vec<_>>();
+		let votes = all_candidates
+			.iter()
+			.cloned()
+			.take(votes)
+			.collect::<Vec<_>>();
 		let voter = endowed_account::<T>("voter", i);
 		submit_voter::<T>(voter, votes, stake)?;
 	}
@@ -135,11 +128,13 @@ fn fill_seats_up_to<T: Config>(m: u32) -> Result<Vec<T::AccountId>, &'static str
 		m as usize,
 		"wrong number of members and runners-up",
 	);
-	Ok(<Elections<T>>::members()
-		.into_iter()
-		.map(|m| m.who)
-		.chain(<Elections<T>>::runners_up().into_iter().map(|r| r.who))
-		.collect())
+	Ok(
+		<Elections<T>>::members()
+			.into_iter()
+			.map(|m| m.who)
+			.chain(<Elections<T>>::runners_up().into_iter().map(|r| r.who))
+			.collect()
+	)
 }
 
 /// removes all the storage items to reverse any genesis state.
@@ -147,7 +142,7 @@ fn clean<T: Config>() {
 	<Members<T>>::kill();
 	<Candidates<T>>::kill();
 	<RunnersUp<T>>::kill();
-	<Voting<T>>::remove_all(None);
+	<Voting<T>>::remove_all();
 }
 
 benchmarks! {
@@ -335,16 +330,9 @@ benchmarks! {
 		}
 	}
 
-	// We use the max block weight for this extrinsic for now. See below.
-	remove_member_without_replacement {}: {
-		Err(BenchmarkError::Override(
-			BenchmarkResult::from_weight(T::BlockWeights::get().max_block)
-		))?;
-	}
-
 	// -- Root ones
 	#[extra] // this calls into phragmen and consumes a full block for now.
-	remove_member_without_replacement_extra {
+	remove_member_without_replacement {
 		// worse case is when we remove a member and we have no runner as a replacement. This
 		// triggers phragmen again. The only parameter is how many candidates will compete for the
 		// new slot.
@@ -402,23 +390,15 @@ benchmarks! {
 
 		let _ = fill_seats_up_to::<T>(m)?;
 		let removing = as_lookup::<T>(<Elections<T>>::members_ids()[0].clone());
-		let who = T::Lookup::lookup(removing.clone()).expect("member was added above");
-		let call = Call::<T>::remove_member { who: removing, has_replacement: false }.encode();
 	}: {
 		assert_eq!(
-			<Call<T> as Decode>::decode(&mut &*call)
-				.expect("call is encoded above, encoding must be correct")
-				.dispatch_bypass_filter(RawOrigin::Root.into())
-				.unwrap_err()
-				.error,
+			<Elections<T>>::remove_member(RawOrigin::Root.into(), removing, false).unwrap_err().error,
 			Error::<T>::InvalidReplacement.into(),
 		);
 	}
 	verify {
 		// must still have enough members.
 		assert_eq!(<Elections<T>>::members().len() as u32, T::DesiredMembers::get());
-		// on fail, `who` must still be a member
-		assert!(<Elections<T>>::members_ids().contains(&who));
 		#[cfg(test)]
 		{
 			// reset members in between benchmark tests.
@@ -547,11 +527,11 @@ benchmarks! {
 			MEMBERS.with(|m| *m.borrow_mut() = vec![]);
 		}
 	}
-
-	impl_benchmark_test_suite!(
-		Elections,
-		crate::tests::ExtBuilder::default().desired_members(13).desired_runners_up(7),
-		crate::tests::Test,
-		exec_name = build_and_execute,
-	);
 }
+
+impl_benchmark_test_suite!(
+	Elections,
+	crate::tests::ExtBuilder::default().desired_members(13).desired_runners_up(7),
+	crate::tests::Test,
+	exec_name = build_and_execute,
+);

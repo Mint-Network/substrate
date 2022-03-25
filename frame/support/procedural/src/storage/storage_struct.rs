@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,15 +17,16 @@
 
 //! Implementation of storage structures and implementation of storage traits on them.
 
-use super::{instance_trait::INHERENT_INSTANCE_NAME, DeclStorageDefExt, StorageLineTypeDef};
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::{TokenStream, Ident, Span};
 use quote::quote;
+use super::{
+	DeclStorageDefExt, StorageLineTypeDef,
+	instance_trait::INHERENT_INSTANCE_NAME,
+};
 
 fn from_optional_value_to_query(is_option: bool, default: &Option<syn::Expr>) -> TokenStream {
-	let default = default
-		.as_ref()
-		.map(|d| quote!( #d ))
-		.unwrap_or_else(|| quote!(Default::default()));
+	let default = default.as_ref().map(|d| quote!( #d ))
+		.unwrap_or_else(|| quote!( Default::default() ));
 
 	if !is_option {
 		// raw type case
@@ -39,10 +40,10 @@ fn from_optional_value_to_query(is_option: bool, default: &Option<syn::Expr>) ->
 fn from_query_to_optional_value(is_option: bool) -> TokenStream {
 	if !is_option {
 		// raw type case
-		quote!(Some(v))
+		quote!( Some(v) )
 	} else {
 		// Option<> type case
-		quote!(v)
+		quote!( v )
 	}
 }
 
@@ -51,6 +52,7 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 	let mut impls = TokenStream::new();
 
 	for line in &def.storage_lines {
+
 		// Propagate doc attributes.
 		let attrs = &line.doc_attrs;
 
@@ -58,8 +60,7 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 		let optional_storage_runtime_comma = &line.optional_storage_runtime_comma;
 		let optional_storage_runtime_bound_comma = &line.optional_storage_runtime_bound_comma;
 		let optional_storage_where_clause = &line.optional_storage_where_clause;
-		let optional_instance_bound_optional_default =
-			&def.optional_instance_bound_optional_default;
+		let optional_instance_bound_optional_default = &def.optional_instance_bound_optional_default;
 		let optional_instance_bound = &def.optional_instance_bound;
 		let optional_instance = &def.optional_instance;
 		let name = &line.name;
@@ -86,8 +87,10 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 			Ident::new(INHERENT_INSTANCE_NAME, Span::call_site())
 		};
 
-		let storage_name_bstr =
-			syn::LitByteStr::new(line.name.to_string().as_ref(), line.name.span());
+		let storage_name_bstr = syn::LitByteStr::new(
+			line.name.to_string().as_ref(),
+			line.name.span()
+		);
 
 		let storage_generator_trait = &line.storage_generator_trait;
 		let storage_struct = &line.storage_struct;
@@ -239,7 +242,7 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 						}
 					}
 				)
-			},
+			}
 		};
 
 		let max_values = if let Some(max_values) = &line.max_values {
@@ -264,21 +267,15 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 								use #scrate::sp_runtime::SaturatedConversion;
 
 								let max_size = <
-									#value_type as #scrate::codec::MaxEncodedLen
+									#value_type as #scrate::traits::MaxEncodedLen
 								>::max_encoded_len()
 									.saturated_into();
 
 								#scrate::sp_std::vec![
 									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct as #scrate::#storage_generator_trait
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct as #scrate::#storage_generator_trait
-										>::storage_prefix().to_vec(),
 										prefix: <
 											#storage_struct as #scrate::#storage_generator_trait
-										>::storage_value_final_key().to_vec(),
+										>::storage_value_final_key(),
 										max_values: Some(1),
 										max_size: Some(max_size),
 									}
@@ -304,25 +301,17 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 								>::Hasher::max_len::<#key>();
 
 								let max_size = <
-									#value_type as #scrate::codec::MaxEncodedLen
+									#value_type as #scrate::traits::MaxEncodedLen
 								>::max_encoded_len()
 									.saturating_add(key_max_size)
 									.saturated_into();
 
 								#scrate::sp_std::vec![
 									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
 										prefix: <
 											#storage_struct
 											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
+										>::final_prefix(),
 										max_values: #max_values,
 										max_size: Some(max_size),
 									}
@@ -353,7 +342,7 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 								>::Hasher2::max_len::<#key2>();
 
 								let max_size = <
-									#value_type as #scrate::codec::MaxEncodedLen
+									#value_type as #scrate::traits::MaxEncodedLen
 								>::max_encoded_len()
 									.saturating_add(key1_max_size)
 									.saturating_add(key2_max_size)
@@ -361,18 +350,10 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 
 								#scrate::sp_std::vec![
 									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
 										prefix: <
 											#storage_struct
 											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
+										>::final_prefix(),
 										max_values: #max_values,
 										max_size: Some(max_size),
 									}
@@ -397,25 +378,17 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 								>::key_max_encoded_len();
 
 								let max_size = <
-									#value_type as #scrate::codec::MaxEncodedLen
+									#value_type as #scrate::traits::MaxEncodedLen
 								>::max_encoded_len()
 									.saturating_add(key_max_size)
 									.saturated_into();
 
 								#scrate::sp_std::vec![
 									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
 										prefix: <
 											#storage_struct
 											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
+										>::final_prefix(),
 										max_values: #max_values,
 										max_size: Some(max_size),
 									}
@@ -426,131 +399,7 @@ pub fn decl_and_impl(def: &DeclStorageDefExt) -> TokenStream {
 				},
 			}
 		} else {
-			// Implement `__partial_storage_info` which doesn't require MaxEncodedLen on keys and
-			// values.
-			match &line.storage_type {
-				StorageLineTypeDef::Simple(_) => {
-					quote!(
-						impl<#impl_trait> #scrate::traits::PartialStorageInfoTrait
-						for #storage_struct
-						#optional_storage_where_clause
-						{
-							fn partial_storage_info()
-								-> #scrate::sp_std::vec::Vec<#scrate::traits::StorageInfo>
-							{
-								#scrate::sp_std::vec![
-									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct as #scrate::#storage_generator_trait
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct as #scrate::#storage_generator_trait
-										>::storage_prefix().to_vec(),
-										prefix: <
-											#storage_struct as #scrate::#storage_generator_trait
-										>::storage_value_final_key().to_vec(),
-										max_values: Some(1),
-										max_size: None,
-									}
-								]
-							}
-						}
-					)
-				},
-				StorageLineTypeDef::Map(_) => {
-					quote!(
-						impl<#impl_trait> #scrate::traits::PartialStorageInfoTrait
-						for #storage_struct
-						#optional_storage_where_clause
-						{
-							fn partial_storage_info()
-								-> #scrate::sp_std::vec::Vec<#scrate::traits::StorageInfo>
-							{
-								#scrate::sp_std::vec![
-									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
-										prefix: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
-										max_values: #max_values,
-										max_size: None,
-									}
-								]
-							}
-						}
-					)
-				},
-				StorageLineTypeDef::DoubleMap(_) => {
-					quote!(
-						impl<#impl_trait> #scrate::traits::PartialStorageInfoTrait
-						for #storage_struct
-						#optional_storage_where_clause
-						{
-							fn partial_storage_info()
-								-> #scrate::sp_std::vec::Vec<#scrate::traits::StorageInfo>
-							{
-								#scrate::sp_std::vec![
-									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
-										prefix: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
-										max_values: #max_values,
-										max_size: None,
-									}
-								]
-							}
-						}
-					)
-				},
-				StorageLineTypeDef::NMap(_) => {
-					quote!(
-						impl<#impl_trait> #scrate::traits::PartialStorageInfoTrait
-						for #storage_struct
-						#optional_storage_where_clause
-						{
-							fn partial_storage_info()
-								-> #scrate::sp_std::vec::Vec<#scrate::traits::StorageInfo>
-							{
-								#scrate::sp_std::vec![
-									#scrate::traits::StorageInfo {
-										pallet_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::module_prefix().to_vec(),
-										storage_name: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::storage_prefix().to_vec(),
-										prefix: <
-											#storage_struct
-											as #scrate::storage::StoragePrefixedMap<#value_type>
-										>::final_prefix().to_vec(),
-										max_values: #max_values,
-										max_size: None,
-									}
-								]
-							}
-						}
-					)
-				},
-			}
+			TokenStream::default()
 		};
 
 		impls.extend(quote!(

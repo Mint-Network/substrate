@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,7 @@
 
 //! Inherents for BABE
 
-use sp_inherents::{Error, InherentData, InherentIdentifier};
+use sp_inherents::{InherentData, InherentIdentifier, Error};
 
 use sp_std::result::Result;
 
@@ -64,10 +64,13 @@ impl InherentDataProvider {
 		timestamp: sp_timestamp::Timestamp,
 		duration: std::time::Duration,
 	) -> Self {
-		let slot =
-			InherentType::from((timestamp.as_duration().as_millis() / duration.as_millis()) as u64);
+		let slot = InherentType::from(
+			(timestamp.as_duration().as_millis() / duration.as_millis()) as u64
+		);
 
-		Self { slot }
+		Self {
+			slot,
+		}
 	}
 
 	/// Returns the `slot` of this inherent data provider.

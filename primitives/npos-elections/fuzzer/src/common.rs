@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,7 +62,11 @@ pub fn generate_random_npos_inputs(
 	candidate_count: usize,
 	voter_count: usize,
 	mut rng: impl Rng,
-) -> (usize, Vec<AccountId>, Vec<(AccountId, VoteWeight, Vec<AccountId>)>) {
+) -> (
+	usize,
+	Vec<AccountId>,
+	Vec<(AccountId, VoteWeight, Vec<AccountId>)>,
+) {
 	// cache for fast generation of unique candidate and voter ids
 	let mut used_ids = HashSet::with_capacity(candidate_count + voter_count);
 

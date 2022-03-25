@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::helper;
 use syn::spanned::Spanned;
+use super::helper;
 
 /// The definition of the pallet validate unsigned implementation.
 pub struct ValidateUnsignedDef {
@@ -32,24 +32,24 @@ impl ValidateUnsignedDef {
 			item
 		} else {
 			let msg = "Invalid pallet::validate_unsigned, expected item impl";
-			return Err(syn::Error::new(item.span(), msg))
+			return Err(syn::Error::new(item.span(), msg));
 		};
 
 		if item.trait_.is_none() {
 			let msg = "Invalid pallet::validate_unsigned, expected impl<..> ValidateUnsigned for \
 				Pallet<..>";
-			return Err(syn::Error::new(item.span(), msg))
+			return Err(syn::Error::new(item.span(), msg));
 		}
 
 		if let Some(last) = item.trait_.as_ref().unwrap().1.segments.last() {
 			if last.ident != "ValidateUnsigned" {
 				let msg = "Invalid pallet::validate_unsigned, expected trait ValidateUnsigned";
-				return Err(syn::Error::new(last.span(), msg))
+				return Err(syn::Error::new(last.span(), msg));
 			}
 		} else {
 			let msg = "Invalid pallet::validate_unsigned, expected impl<..> ValidateUnsigned for \
 				Pallet<..>";
-			return Err(syn::Error::new(item.span(), msg))
+			return Err(syn::Error::new(item.span(), msg));
 		}
 
 		let mut instances = vec![];

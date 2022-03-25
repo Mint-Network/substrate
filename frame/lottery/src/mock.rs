@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2021-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,16 +22,16 @@ use crate as pallet_lottery;
 
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, ConstU64, OnFinalize, OnInitialize},
+	traits::{OnFinalize, OnInitialize},
 };
 use frame_support_test::TestRandomness;
-use frame_system::EnsureRoot;
 use sp_core::H256;
 use sp_runtime::{
+	Perbill,
 	testing::Header,
 	traits::{BlakeTwo256, IdentityLookup},
-	Perbill,
 };
+use frame_system::EnsureRoot;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -49,11 +49,14 @@ frame_support::construct_runtime!(
 );
 
 parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+	pub const MaximumBlockWeight: u32 = 1024;
+	pub const MaximumBlockLength: u32 = 2 * 1024;
 	pub const AvailableBlockRatio: Perbill = Perbill::one();
 }
 
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
 	type DbWeight = ();
@@ -67,7 +70,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = pallet_balances::AccountData<u64>;
@@ -76,23 +79,26 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<16>;
+}
+
+parameter_types! {
+	pub const ExistentialDeposit: u64 = 1;
 }
 
 impl pallet_balances::Config for Test {
 	type MaxLocks = ();
-	type MaxReserves = ();
-	type ReserveIdentifier = [u8; 8];
 	type Balance = u64;
 	type Event = Event;
 	type DustRemoval = ();
-	type ExistentialDeposit = ConstU64<1>;
+	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = System;
 	type WeightInfo = ();
 }
 
 parameter_types! {
 	pub const LotteryPalletId: PalletId = PalletId(*b"py/lotto");
+	pub const MaxCalls: u32 = 2;
+	pub const MaxGenerateRandom: u32 = 10;
 }
 
 impl Config for Test {
@@ -102,9 +108,9 @@ impl Config for Test {
 	type Randomness = TestRandomness<Self>;
 	type Event = Event;
 	type ManagerOrigin = EnsureRoot<u64>;
-	type MaxCalls = ConstU32<2>;
+	type MaxCalls = MaxCalls;
 	type ValidateCall = Lottery;
-	type MaxGenerateRandom = ConstU32<10>;
+	type MaxGenerateRandom = MaxGenerateRandom;
 	type WeightInfo = ();
 }
 
@@ -115,9 +121,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(1, 100), (2, 100), (3, 100), (4, 100), (5, 100)],
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	}.assimilate_storage(&mut t).unwrap();
 	t.into()
 }
 

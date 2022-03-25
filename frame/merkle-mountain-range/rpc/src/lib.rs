@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2021-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,14 +25,16 @@ use codec::{Codec, Encode};
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use serde::{Deserialize, Serialize};
-
-use pallet_mmr_primitives::{Error as MmrError, Proof};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::Bytes;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::{
+	generic::BlockId,
+	traits::{Block as BlockT},
+};
+use pallet_mmr_primitives::{Error as MmrError, Proof};
 
-pub use pallet_mmr_primitives::{LeafIndex, MmrApi as MmrRuntimeApi};
+pub use pallet_mmr_primitives::MmrApi as MmrRuntimeApi;
 
 /// Retrieved MMR leaf and its proof.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -48,12 +50,19 @@ pub struct LeafProof<BlockHash> {
 
 impl<BlockHash> LeafProof<BlockHash> {
 	/// Create new `LeafProof` from given concrete `leaf` and `proof`.
-	pub fn new<Leaf, MmrHash>(block_hash: BlockHash, leaf: Leaf, proof: Proof<MmrHash>) -> Self
-	where
+	pub fn new<Leaf, MmrHash>(
+		block_hash: BlockHash,
+		leaf: Leaf,
+		proof: Proof<MmrHash>,
+	) -> Self where
 		Leaf: Encode,
 		MmrHash: Encode,
 	{
-		Self { block_hash, leaf: Bytes(leaf.encode()), proof: Bytes(proof.encode()) }
+		Self {
+			block_hash,
+			leaf: Bytes(leaf.encode()),
+			proof: Bytes(proof.encode()),
+		}
 	}
 }
 
@@ -71,7 +80,7 @@ pub trait MmrApi<BlockHash> {
 	#[rpc(name = "mmr_generateProof")]
 	fn generate_proof(
 		&self,
-		leaf_index: LeafIndex,
+		leaf_index: u64,
 		at: Option<BlockHash>,
 	) -> Result<LeafProof<BlockHash>>;
 }
@@ -85,26 +94,33 @@ pub struct Mmr<C, B> {
 impl<C, B> Mmr<C, B> {
 	/// Create new `Mmr` with the given reference to the client.
 	pub fn new(client: Arc<C>) -> Self {
-		Self { client, _marker: Default::default() }
+		Self {
+			client,
+			_marker: Default::default(),
+		}
 	}
 }
 
-impl<C, Block, MmrHash> MmrApi<<Block as BlockT>::Hash> for Mmr<C, (Block, MmrHash)>
+impl<C, Block, MmrHash> MmrApi<<Block as BlockT>::Hash,> for Mmr<C, (Block, MmrHash)>
 where
 	Block: BlockT,
 	C: Send + Sync + 'static + ProvideRuntimeApi<Block> + HeaderBackend<Block>,
-	C::Api: MmrRuntimeApi<Block, MmrHash>,
+	C::Api: MmrRuntimeApi<
+		Block,
+		MmrHash,
+	>,
 	MmrHash: Codec + Send + Sync + 'static,
 {
 	fn generate_proof(
 		&self,
-		leaf_index: LeafIndex,
+		leaf_index: u64,
 		at: Option<<Block as BlockT>::Hash>,
 	) -> Result<LeafProof<<Block as BlockT>::Hash>> {
 		let api = self.client.runtime_api();
 		let block_hash = at.unwrap_or_else(||
 			// If the block hash is not supplied assume the best block.
-			self.client.info().best_hash);
+			self.client.info().best_hash
+		);
 
 		let (leaf, proof) = api
 			.generate_proof_with_context(
@@ -185,14 +201,11 @@ mod tests {
 		let expected = LeafProof {
 			block_hash: H256::repeat_byte(0),
 			leaf: Bytes(vec![1_u8, 2, 3, 4].encode()),
-			proof: Bytes(
-				Proof {
-					leaf_index: 1,
-					leaf_count: 9,
-					items: vec![H256::repeat_byte(1), H256::repeat_byte(2)],
-				}
-				.encode(),
-			),
+			proof: Bytes(Proof {
+				leaf_index: 1,
+				leaf_count: 9,
+				items: vec![H256::repeat_byte(1), H256::repeat_byte(2)],
+			}.encode()),
 		};
 
 		// when
@@ -204,5 +217,6 @@ mod tests {
 
 		// then
 		assert_eq!(actual, expected);
+
 	}
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::arg_enums::Database;
-use sc_service::TransactionStorageMode;
 use structopt::StructOpt;
+use sc_service::TransactionStorageMode;
 
 /// Parameters for block import.
 #[derive(Debug, StructOpt, Clone)]

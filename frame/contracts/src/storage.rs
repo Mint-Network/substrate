@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,46 +17,100 @@
 
 //! This module contains routines for accessing and altering a contract related state.
 
-pub mod meter;
-
 use crate::{
 	exec::{AccountIdOf, StorageKey},
+	BalanceOf, CodeHash, ContractInfoOf, Config, TrieId, DeletionQueue, Error,
 	weights::WeightInfo,
-	BalanceOf, CodeHash, Config, ContractInfoOf, DeletionQueue, Error, TrieId,
 };
-use codec::{Decode, Encode};
+use codec::{Codec, Encode, Decode};
+use sp_std::prelude::*;
+use sp_std::{marker::PhantomData, fmt::Debug};
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
+	RuntimeDebug,
+	traits::{Bounded, Saturating, Zero, Hash, Member, MaybeSerializeDeserialize},
+};
+use sp_core::crypto::UncheckedFrom;
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
-	storage::child::{self, ChildInfo, KillStorageResult},
+	storage::child::{self, KillChildStorageResult, ChildInfo},
 	traits::Get,
 	weights::Weight,
 };
-use scale_info::TypeInfo;
-use sp_core::crypto::UncheckedFrom;
-use sp_io::hashing::blake2_256;
-use sp_runtime::{
-	traits::{Hash, Zero},
-	RuntimeDebug,
-};
-use sp_std::{marker::PhantomData, prelude::*};
 
-pub type ContractInfo<T> = RawContractInfo<CodeHash<T>, BalanceOf<T>>;
+pub type AliveContractInfo<T> =
+	RawAliveContractInfo<CodeHash<T>, BalanceOf<T>, <T as frame_system::Config>::BlockNumber>;
+pub type TombstoneContractInfo<T> =
+	RawTombstoneContractInfo<<T as frame_system::Config>::Hash, <T as frame_system::Config>::Hashing>;
+
+/// Information for managing an account and its sub trie abstraction.
+/// This is the required info to cache for an account
+#[derive(Encode, Decode, RuntimeDebug)]
+pub enum ContractInfo<T: Config> {
+	Alive(AliveContractInfo<T>),
+	Tombstone(TombstoneContractInfo<T>),
+}
+
+impl<T: Config> ContractInfo<T> {
+	/// If contract is alive then return some alive info
+	pub fn get_alive(self) -> Option<AliveContractInfo<T>> {
+		if let ContractInfo::Alive(alive) = self {
+			Some(alive)
+		} else {
+			None
+		}
+	}
+
+	/// If contract is alive then return some reference to alive info
+	#[cfg(test)]
+	pub fn as_alive(&self) -> Option<&AliveContractInfo<T>> {
+		if let ContractInfo::Alive(ref alive) = self {
+			Some(alive)
+		} else {
+			None
+		}
+	}
+
+	/// If contract is tombstone then return some tombstone info
+	pub fn get_tombstone(self) -> Option<TombstoneContractInfo<T>> {
+		if let ContractInfo::Tombstone(tombstone) = self {
+			Some(tombstone)
+		} else {
+			None
+		}
+	}
+}
 
 /// Information for managing an account and its sub trie abstraction.
 /// This is the required info to cache for an account.
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub struct RawContractInfo<CodeHash, Balance> {
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
+pub struct RawAliveContractInfo<CodeHash, Balance, BlockNumber> {
 	/// Unique ID for the subtree encoded as a bytes vector.
 	pub trie_id: TrieId,
+	/// The total number of bytes used by this contract.
+	///
+	/// It is a sum of each key-value pair stored by this contract.
+	pub storage_size: u32,
+	/// The total number of key-value pairs in storage of this contract.
+	pub pair_count: u32,
 	/// The code associated with a given account.
 	pub code_hash: CodeHash,
-	/// The amount of balance that is currently deposited to pay for consumed storage.
-	pub storage_deposit: Balance,
+	/// Pay rent at most up to this value.
+	pub rent_allowance: Balance,
+	/// The amount of rent that was payed by the contract over its whole lifetime.
+	///
+	/// A restored contract starts with a value of zero just like a new contract.
+	pub rent_payed: Balance,
+	/// Last block rent has been payed.
+	pub deduct_block: BlockNumber,
+	/// Last block child storage has been written.
+	pub last_write: Option<BlockNumber>,
+	/// This field is reserved for future evolution of format.
+	pub _reserved: Option<()>,
 }
 
-impl<CodeHash, Balance> RawContractInfo<CodeHash, Balance> {
+impl<CodeHash, Balance, BlockNumber> RawAliveContractInfo<CodeHash, Balance, BlockNumber> {
 	/// Associated child trie unique id is built from the hash part of the trie id.
-	#[cfg(test)]
 	pub fn child_trie_info(&self) -> ChildInfo {
 		child_trie_info(&self.trie_id[..])
 	}
@@ -67,24 +121,34 @@ fn child_trie_info(trie_id: &[u8]) -> ChildInfo {
 	ChildInfo::new_default(trie_id)
 }
 
-#[derive(Encode, Decode, TypeInfo)]
-pub struct DeletedContract {
-	pub(crate) trie_id: TrieId,
+#[derive(Encode, Decode, PartialEq, Eq, RuntimeDebug)]
+pub struct RawTombstoneContractInfo<H, Hasher>(H, PhantomData<Hasher>);
+
+impl<H, Hasher> RawTombstoneContractInfo<H, Hasher>
+where
+	H: Member + MaybeSerializeDeserialize+ Debug
+		+ AsRef<[u8]> + AsMut<[u8]> + Copy + Default
+		+ sp_std::hash::Hash + Codec,
+	Hasher: Hash<Output=H>,
+{
+	pub fn new(storage_root: &[u8], code_hash: H) -> Self {
+		let mut buf = Vec::new();
+		storage_root.using_encoded(|encoded| buf.extend_from_slice(encoded));
+		buf.extend_from_slice(code_hash.as_ref());
+		RawTombstoneContractInfo(<Hasher as Hash>::hash(&buf[..]), PhantomData)
+	}
 }
 
-/// Information about what happended to the pre-existing value when calling [`Storage::write`].
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum WriteOutcome {
-	/// No value existed at the specified key.
-	New,
-	/// A value of the returned length was overwritten.
-	Overwritten(u32),
-	/// The returned value was taken out of storage before being overwritten.
-	///
-	/// This is only returned when specifically requested because it causes additional work
-	/// depending on the size of the pre-existing value. When not requested [`Self::Overwritten`]
-	/// is returned instead.
-	Taken(Vec<u8>),
+impl<T: Config> From<AliveContractInfo<T>> for ContractInfo<T> {
+	fn from(alive_info: AliveContractInfo<T>) -> Self {
+		Self::Alive(alive_info)
+	}
+}
+
+#[derive(Encode, Decode)]
+pub struct DeletedContract {
+	pair_count: u32,
+	trie_id: TrieId,
 }
 
 pub struct Storage<T>(PhantomData<T>);
@@ -92,105 +156,114 @@ pub struct Storage<T>(PhantomData<T>);
 impl<T> Storage<T>
 where
 	T: Config,
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
 {
 	/// Reads a storage kv pair of a contract.
 	///
-	/// The read is performed from the `trie_id` only. The `address` is not necessary. If the
-	/// contract doesn't store under the given `key` `None` is returned.
+	/// The read is performed from the `trie_id` only. The `address` is not necessary. If the contract
+	/// doesn't store under the given `key` `None` is returned.
 	pub fn read(trie_id: &TrieId, key: &StorageKey) -> Option<Vec<u8>> {
-		child::get_raw(&child_trie_info(trie_id), &blake2_256(key))
-	}
-
-	/// Returns `true` iff the `key` exists in storage.
-	pub fn contains(trie_id: &TrieId, key: &StorageKey) -> bool {
-		child::exists(&child_trie_info(trie_id), &blake2_256(key))
+		child::get_raw(&child_trie_info(&trie_id), &blake2_256(key))
 	}
 
 	/// Update a storage entry into a contract's kv storage.
 	///
-	/// If the `new_value` is `None` then the kv pair is removed. If `take` is true
-	/// a [`WriteOutcome::Taken`] is returned instead of a [`WriteOutcome::Overwritten`].
+	/// If the `opt_new_value` is `None` then the kv pair is removed.
 	///
-	/// This function also records how much storage was created or removed if a `storage_meter`
-	/// is supplied. It should only be absent for testing or benchmarking code.
+	/// This function also updates the bookkeeping info such as: number of total non-empty pairs a
+	/// contract owns, the last block the storage was written to, etc. That's why, in contrast to
+	/// `read`, this function also requires the `account` ID.
 	pub fn write(
-		trie_id: &TrieId,
+		block_number: T::BlockNumber,
+		new_info: &mut AliveContractInfo<T>,
 		key: &StorageKey,
-		new_value: Option<Vec<u8>>,
-		storage_meter: Option<&mut meter::NestedMeter<T>>,
-		take: bool,
-	) -> Result<WriteOutcome, DispatchError> {
+		opt_new_value: Option<Vec<u8>>,
+	) -> DispatchResult {
 		let hashed_key = blake2_256(key);
-		let child_trie_info = &child_trie_info(trie_id);
-		let (old_len, old_value) = if take {
-			let val = child::get_raw(&child_trie_info, &hashed_key);
-			(val.as_ref().map(|v| v.len() as u32), val)
-		} else {
-			(child::len(&child_trie_info, &hashed_key), None)
-		};
+		let child_trie_info = &child_trie_info(&new_info.trie_id);
 
-		if let Some(storage_meter) = storage_meter {
-			let mut diff = meter::Diff::default();
-			match (old_len, new_value.as_ref().map(|v| v.len() as u32)) {
-				(Some(old_len), Some(new_len)) =>
-					if new_len > old_len {
-						diff.bytes_added = new_len - old_len;
-					} else {
-						diff.bytes_removed = old_len - new_len;
-					},
-				(None, Some(new_len)) => {
-					diff.bytes_added = new_len;
-					diff.items_added = 1;
-				},
-				(Some(old_len), None) => {
-					diff.bytes_removed = old_len;
-					diff.items_removed = 1;
-				},
-				(None, None) => (),
-			}
-			storage_meter.charge(&diff)?;
+		let opt_prev_len = child::len(&child_trie_info, &hashed_key);
+
+		// Update the total number of KV pairs and the number of empty pairs.
+		match (&opt_prev_len, &opt_new_value) {
+			(Some(_), None) => {
+				new_info.pair_count = new_info.pair_count.checked_sub(1)
+					.ok_or_else(|| Error::<T>::StorageExhausted)?;
+			},
+			(None, Some(_)) => {
+				new_info.pair_count = new_info.pair_count.checked_add(1)
+					.ok_or_else(|| Error::<T>::StorageExhausted)?;
+			},
+			(Some(_), Some(_)) => {},
+			(None, None) => {},
 		}
 
-		match &new_value {
-			Some(new_value) => child::put_raw(&child_trie_info, &hashed_key, new_value),
+		// Update the total storage size.
+		let prev_value_len = opt_prev_len.unwrap_or(0);
+		let new_value_len = opt_new_value
+			.as_ref()
+			.map(|new_value| new_value.len() as u32)
+			.unwrap_or(0);
+		new_info.storage_size = new_info
+			.storage_size
+			.checked_sub(prev_value_len)
+			.and_then(|val| val.checked_add(new_value_len))
+			.ok_or_else(|| Error::<T>::StorageExhausted)?;
+
+		new_info.last_write = Some(block_number);
+
+		// Finally, perform the change on the storage.
+		match opt_new_value {
+			Some(new_value) => child::put_raw(&child_trie_info, &hashed_key, &new_value[..]),
 			None => child::kill(&child_trie_info, &hashed_key),
 		}
 
-		Ok(match (old_len, old_value) {
-			(None, _) => WriteOutcome::New,
-			(Some(old_len), None) => WriteOutcome::Overwritten(old_len),
-			(Some(_), Some(old_value)) => WriteOutcome::Taken(old_value),
-		})
+		Ok(())
 	}
 
-	/// Creates a new contract descriptor in the storage with the given code hash at the given
-	/// address.
+	/// Creates a new contract descriptor in the storage with the given code hash at the given address.
 	///
-	/// Returns `Err` if there is already a contract at the given address.
+	/// Returns `Err` if there is already a contract (or a tombstone) exists at the given address.
 	pub fn new_contract(
 		account: &AccountIdOf<T>,
 		trie_id: TrieId,
 		ch: CodeHash<T>,
-	) -> Result<ContractInfo<T>, DispatchError> {
+	) -> Result<AliveContractInfo<T>, DispatchError> {
 		if <ContractInfoOf<T>>::contains_key(account) {
-			return Err(Error::<T>::DuplicateContract.into())
+			return Err(Error::<T>::DuplicateContract.into());
 		}
 
-		let contract =
-			ContractInfo::<T> { code_hash: ch, trie_id, storage_deposit: <BalanceOf<T>>::zero() };
+		let contract = AliveContractInfo::<T> {
+			code_hash: ch,
+			storage_size: 0,
+			trie_id,
+			deduct_block:
+				// We want to charge rent for the first block in advance. Therefore we
+				// treat the contract as if it was created in the last block and then
+				// charge rent for it during instantiation.
+				<frame_system::Pallet<T>>::block_number().saturating_sub(1u32.into()),
+			rent_allowance: <BalanceOf<T>>::max_value(),
+			rent_payed: <BalanceOf<T>>::zero(),
+			pair_count: 0,
+			last_write: None,
+			_reserved: None,
+		};
 
 		Ok(contract)
 	}
 
 	/// Push a contract's trie to the deletion queue for lazy removal.
 	///
-	/// You must make sure that the contract is also removed when queuing the trie for deletion.
-	pub fn queue_trie_for_deletion(contract: &ContractInfo<T>) -> DispatchResult {
+	/// You must make sure that the contract is also removed or converted into a tombstone
+	/// when queuing the trie for deletion.
+	pub fn queue_trie_for_deletion(contract: &AliveContractInfo<T>) -> DispatchResult {
 		if <DeletionQueue<T>>::decode_len().unwrap_or(0) >= T::DeletionQueueDepth::get() as usize {
 			Err(Error::<T>::DeletionQueueFull.into())
 		} else {
-			<DeletionQueue<T>>::append(DeletedContract { trie_id: contract.trie_id.clone() });
+			<DeletionQueue<T>>::append(DeletedContract {
+				pair_count: contract.pair_count,
+				trie_id: contract.trie_id.clone(),
+			});
 			Ok(())
 		}
 	}
@@ -219,39 +292,57 @@ where
 
 	/// Delete as many items from the deletion queue possible within the supplied weight limit.
 	///
-	/// It returns the amount of weight used for that task.
+	/// It returns the amount of weight used for that task or `None` when no weight was used
+	/// apart from the base weight.
 	pub fn process_deletion_queue_batch(weight_limit: Weight) -> Weight {
 		let queue_len = <DeletionQueue<T>>::decode_len().unwrap_or(0);
 		if queue_len == 0 {
-			return 0
+			return weight_limit;
 		}
 
-		let (weight_per_key, mut remaining_key_budget) =
-			Self::deletion_budget(queue_len, weight_limit);
+		let (weight_per_key, mut remaining_key_budget) = Self::deletion_budget(
+			queue_len,
+			weight_limit,
+		);
 
 		// We want to check whether we have enough weight to decode the queue before
 		// proceeding. Too little weight for decoding might happen during runtime upgrades
 		// which consume the whole block before the other `on_initialize` blocks are called.
 		if remaining_key_budget == 0 {
-			return weight_limit
+			return weight_limit;
 		}
 
 		let mut queue = <DeletionQueue<T>>::get();
 
-		if let (Some(trie), true) = (queue.get(0), remaining_key_budget > 0) {
-			let outcome =
-				child::kill_storage(&child_trie_info(&trie.trie_id), Some(remaining_key_budget));
-			let keys_removed = match outcome {
-				// This happens when our budget wasn't large enough to remove all keys.
-				KillStorageResult::SomeRemaining(count) => count,
-				KillStorageResult::AllRemoved(count) => {
-					// We do not care to preserve order. The contract is deleted already and
-					// noone waits for the trie to be deleted.
-					queue.swap_remove(0);
-					count
-				},
-			};
-			remaining_key_budget = remaining_key_budget.saturating_sub(keys_removed);
+		while !queue.is_empty() && remaining_key_budget > 0 {
+			// Cannot panic due to loop condition
+			let trie = &mut queue[0];
+			let pair_count = trie.pair_count;
+			let outcome = child::kill_storage(
+				&child_trie_info(&trie.trie_id),
+				Some(remaining_key_budget),
+			);
+			if pair_count > remaining_key_budget {
+				// Cannot underflow because of the if condition
+				trie.pair_count -= remaining_key_budget;
+			} else {
+				// We do not care to preserve order. The contract is deleted already and
+				// noone waits for the trie to be deleted.
+				let removed = queue.swap_remove(0);
+				match outcome {
+					// This should not happen as our budget was large enough to remove all keys.
+					KillChildStorageResult::SomeRemaining(_) => {
+						log::error!(
+							target: "runtime::contracts",
+							"After deletion keys are remaining in this child trie: {:?}",
+							removed.trie_id,
+						);
+					},
+					KillChildStorageResult::AllRemoved(_) => (),
+				}
+			}
+			remaining_key_budget = remaining_key_budget
+				.saturating_sub(remaining_key_budget.min(pair_count));
 		}
 
 		<DeletionQueue<T>>::put(queue);
@@ -261,22 +352,29 @@ where
 	/// This generator uses inner counter for account id and applies the hash over `AccountId +
 	/// accountid_counter`.
 	pub fn generate_trie_id(account_id: &AccountIdOf<T>, seed: u64) -> TrieId {
-		let buf: Vec<_> = account_id.as_ref().iter().chain(&seed.to_le_bytes()).cloned().collect();
+		let buf: Vec<_> = account_id.as_ref().iter()
+			.chain(&seed.to_le_bytes())
+			.cloned()
+			.collect();
 		T::Hashing::hash(&buf).as_ref().into()
 	}
 
 	/// Returns the code hash of the contract specified by `account` ID.
 	#[cfg(test)]
-	pub fn code_hash(account: &AccountIdOf<T>) -> Option<CodeHash<T>> {
-		<ContractInfoOf<T>>::get(account).map(|i| i.code_hash)
+	pub fn code_hash(account: &AccountIdOf<T>) -> Option<CodeHash<T>>
+	{
+		<ContractInfoOf<T>>::get(account)
+			.and_then(|i| i.as_alive().map(|i| i.code_hash))
 	}
 
 	/// Fill up the queue in order to exercise the limits during testing.
 	#[cfg(test)]
 	pub fn fill_queue_with_dummies() {
-		let queue: Vec<_> = (0..T::DeletionQueueDepth::get())
-			.map(|_| DeletedContract { trie_id: vec![] })
-			.collect();
+		let queue: Vec<_> = (0..T::DeletionQueueDepth::get()).map(|_| DeletedContract {
+			pair_count: 0,
+			trie_id: vec![],
+		})
+		.collect();
 		<DeletionQueue<T>>::put(queue);
 	}
 }

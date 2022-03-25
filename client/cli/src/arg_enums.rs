@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -51,7 +51,7 @@ impl std::str::FromStr for WasmExecutionMethod {
 			}
 			#[cfg(not(feature = "wasmtime"))]
 			{
-				Err("`Compiled` variant requires the `wasmtime` feature to be enabled".into())
+				Err(format!("`Compiled` variant requires the `wasmtime` feature to be enabled"))
 			}
 		} else {
 			Err(format!("Unknown variant `{}`, known variants: {:?}", s, Self::variants()))
@@ -74,8 +74,9 @@ impl WasmExecutionMethod {
 impl Into<sc_service::config::WasmExecutionMethod> for WasmExecutionMethod {
 	fn into(self) -> sc_service::config::WasmExecutionMethod {
 		match self {
-			WasmExecutionMethod::Interpreted =>
-				sc_service::config::WasmExecutionMethod::Interpreted,
+			WasmExecutionMethod::Interpreted => {
+				sc_service::config::WasmExecutionMethod::Interpreted
+			}
 			#[cfg(feature = "wasmtime")]
 			WasmExecutionMethod::Compiled => sc_service::config::WasmExecutionMethod::Compiled,
 			#[cfg(not(feature = "wasmtime"))]
@@ -197,9 +198,6 @@ pub enum Database {
 	RocksDb,
 	/// ParityDb. <https://github.com/paritytech/parity-db/>
 	ParityDb,
-	/// Detect whether there is an existing database. Use it, if there is, if not, create new
-	/// instance of paritydb
-	Auto,
 }
 
 impl std::str::FromStr for Database {
@@ -210,8 +208,6 @@ impl std::str::FromStr for Database {
 			Ok(Self::RocksDb)
 		} else if s.eq_ignore_ascii_case("paritydb-experimental") {
 			Ok(Self::ParityDb)
-		} else if s.eq_ignore_ascii_case("auto") {
-			Ok(Self::Auto)
 		} else {
 			Err(format!("Unknown variant `{}`, known variants: {:?}", s, Self::variants()))
 		}
@@ -221,7 +217,7 @@ impl std::str::FromStr for Database {
 impl Database {
 	/// Returns all the variants of this enum to be shown in the cli.
 	pub fn variants() -> &'static [&'static str] {
-		&["rocksdb", "paritydb-experimental", "auto"]
+		&["rocksdb", "paritydb-experimental"]
 	}
 }
 
@@ -233,35 +229,6 @@ arg_enum! {
 		Always,
 		Never,
 		WhenValidating,
-	}
-}
-
-arg_enum! {
-	/// Syncing mode.
-	#[allow(missing_docs)]
-	#[derive(Debug, Clone, Copy)]
-	pub enum SyncMode {
-		// Full sync. Donwnload end verify all blocks.
-		Full,
-		// Download blocks without executing them. Download latest state with proofs.
-		Fast,
-		// Download blocks without executing them. Download latest state without proofs.
-		FastUnsafe,
-		// Prove finality and download the latest state.
-		Warp,
-	}
-}
-
-impl Into<sc_network::config::SyncMode> for SyncMode {
-	fn into(self) -> sc_network::config::SyncMode {
-		match self {
-			SyncMode::Full => sc_network::config::SyncMode::Full,
-			SyncMode::Fast =>
-				sc_network::config::SyncMode::Fast { skip_proofs: false, storage_chain_mode: false },
-			SyncMode::FastUnsafe =>
-				sc_network::config::SyncMode::Fast { skip_proofs: true, storage_chain_mode: false },
-			SyncMode::Warp => sc_network::config::SyncMode::Warp,
-		}
 	}
 }
 

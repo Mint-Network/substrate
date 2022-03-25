@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -17,11 +17,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{
-	error,
-	params::{BlockNumberOrHash, ImportParams, SharedParams},
-	CliConfiguration,
+	CliConfiguration, error, params::{ImportParams, SharedParams, BlockNumberOrHash},
 };
-use sc_client_api::{BlockBackend, HeaderBackend};
+use sc_client_api::{BlockBackend, UsageProvider};
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 use structopt::StructOpt;
@@ -50,10 +48,14 @@ pub struct CheckBlockCmd {
 
 impl CheckBlockCmd {
 	/// Run the check-block command
-	pub async fn run<B, C, IQ>(&self, client: Arc<C>, import_queue: IQ) -> error::Result<()>
+	pub async fn run<B, C, IQ>(
+		&self,
+		client: Arc<C>,
+		import_queue: IQ,
+	) -> error::Result<()>
 	where
 		B: BlockT + for<'de> serde::Deserialize<'de>,
-		C: BlockBackend<B> + HeaderBackend<B> + Send + Sync + 'static,
+		C: BlockBackend<B> + UsageProvider<B> + Send + Sync + 'static,
 		IQ: sc_service::ImportQueue<B> + 'static,
 		B::Hash: FromStr,
 		<B::Hash as FromStr>::Err: Debug,

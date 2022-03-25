@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,21 +16,14 @@
 // limitations under the License.
 
 use crate::{Config, Pallet};
-use codec::{Decode, Encode};
-use scale_info::TypeInfo;
+use codec::{Encode, Decode};
 use sp_runtime::{
-	traits::{DispatchInfoOf, SignedExtension},
+	traits::SignedExtension,
 	transaction_validity::TransactionValidityError,
 };
 
 /// Ensure the runtime version registered in the transaction is the same as at present.
-///
-/// # Transaction Validity
-///
-/// The transaction with incorrect `spec_version` are considered invalid. The validity
-/// is not affected in any other way.
-#[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
-#[scale_info(skip_type_params(T))]
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct CheckSpecVersion<T: Config + Send + Sync>(sp_std::marker::PhantomData<T>);
 
 impl<T: Config + Send + Sync> sp_std::fmt::Debug for CheckSpecVersion<T> {
@@ -61,15 +54,5 @@ impl<T: Config + Send + Sync> SignedExtension for CheckSpecVersion<T> {
 
 	fn additional_signed(&self) -> Result<Self::AdditionalSigned, TransactionValidityError> {
 		Ok(<Pallet<T>>::runtime_version().spec_version)
-	}
-
-	fn pre_dispatch(
-		self,
-		who: &Self::AccountId,
-		call: &Self::Call,
-		info: &DispatchInfoOf<Self::Call>,
-		len: usize,
-	) -> Result<Self::Pre, TransactionValidityError> {
-		self.validate(who, call, info, len).map(|_| ())
 	}
 }

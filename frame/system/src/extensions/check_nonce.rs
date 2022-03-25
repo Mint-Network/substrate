@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,29 +15,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use codec::{Encode, Decode};
 use crate::Config;
-use codec::{Decode, Encode};
 use frame_support::weights::DispatchInfo;
-use scale_info::TypeInfo;
 use sp_runtime::{
-	traits::{DispatchInfoOf, Dispatchable, One, SignedExtension},
+	traits::{SignedExtension, DispatchInfoOf, Dispatchable, One},
 	transaction_validity::{
-		InvalidTransaction, TransactionLongevity, TransactionValidity, TransactionValidityError,
-		ValidTransaction,
+		ValidTransaction, TransactionValidityError, InvalidTransaction, TransactionValidity,
+		TransactionLongevity,
 	},
 };
 use sp_std::vec;
 
 /// Nonce check and increment to give replay protection for transactions.
 ///
-/// # Transaction Validity
-///
-/// This extension affects `requires` and `provides` tags of validity, but DOES NOT
-/// set the `priority` field. Make sure that AT LEAST one of the signed extension sets
-/// some kind of priority upon validating transactions.
-#[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
-#[scale_info(skip_type_params(T))]
-pub struct CheckNonce<T: Config>(#[codec(compact)] pub T::Index);
+/// Note that this does not set any priority by default. Make sure that AT LEAST one of the signed
+/// extension sets some kind of priority upon validating transactions.
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
+pub struct CheckNonce<T: Config>(#[codec(compact)] T::Index);
 
 impl<T: Config> CheckNonce<T> {
 	/// utility constructor. Used only in client/factory code.
@@ -58,9 +53,8 @@ impl<T: Config> sp_std::fmt::Debug for CheckNonce<T> {
 	}
 }
 
-impl<T: Config> SignedExtension for CheckNonce<T>
-where
-	T::Call: Dispatchable<Info = DispatchInfo>,
+impl<T: Config> SignedExtension for CheckNonce<T> where
+	T::Call: Dispatchable<Info=DispatchInfo>
 {
 	type AccountId = T::AccountId;
 	type Call = T::Call;
@@ -68,9 +62,7 @@ where
 	type Pre = ();
 	const IDENTIFIER: &'static str = "CheckNonce";
 
-	fn additional_signed(&self) -> sp_std::result::Result<(), TransactionValidityError> {
-		Ok(())
-	}
+	fn additional_signed(&self) -> sp_std::result::Result<(), TransactionValidityError> { Ok(()) }
 
 	fn pre_dispatch(
 		self,
@@ -81,12 +73,13 @@ where
 	) -> Result<(), TransactionValidityError> {
 		let mut account = crate::Account::<T>::get(who);
 		if self.0 != account.nonce {
-			return Err(if self.0 < account.nonce {
-				InvalidTransaction::Stale
-			} else {
-				InvalidTransaction::Future
-			}
-			.into())
+			return Err(
+				if self.0 < account.nonce {
+					InvalidTransaction::Stale
+				} else {
+					InvalidTransaction::Future
+				}.into()
+			)
 		}
 		account.nonce += T::Index::one();
 		crate::Account::<T>::insert(who, account);
@@ -126,22 +119,19 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::mock::{new_test_ext, Test, CALL};
+	use crate::mock::{Test, new_test_ext, CALL};
 	use frame_support::{assert_noop, assert_ok};
 
 	#[test]
 	fn signed_ext_check_nonce_works() {
 		new_test_ext().execute_with(|| {
-			crate::Account::<Test>::insert(
-				1,
-				crate::AccountInfo {
-					nonce: 1,
-					consumers: 0,
-					providers: 0,
-					sufficients: 0,
-					data: 0,
-				},
-			);
+			crate::Account::<Test>::insert(1, crate::AccountInfo {
+				nonce: 1,
+				consumers: 0,
+				providers: 0,
+				sufficients: 0,
+				data: 0,
+			});
 			let info = DispatchInfo::default();
 			let len = 0_usize;
 			// stale

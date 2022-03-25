@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,25 +18,20 @@
 //! Test utilities
 
 use super::*;
-use crate as sudo;
-use frame_support::{
-	parameter_types,
-	traits::{ConstU32, ConstU64, Contains, GenesisBuild},
-};
-use frame_system::limits;
+use frame_support::{parameter_types, traits::GenesisBuild};
 use sp_core::H256;
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
 use sp_io;
-use sp_runtime::{
-	testing::Header,
-	traits::{BlakeTwo256, IdentityLookup},
-};
+use crate as sudo;
+use frame_support::traits::Filter;
+use frame_system::limits;
 
 // Logger module to track execution.
 #[frame_support::pallet]
 pub mod logger {
-	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use super::*;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -47,51 +42,64 @@ pub mod logger {
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(PhantomData<T>);
 
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(*weight)]
-		pub fn privileged_i32_log(
+		pub(crate) fn privileged_i32_log(
 			origin: OriginFor<T>,
 			i: i32,
-			weight: Weight,
+			weight: Weight
 		) -> DispatchResultWithPostInfo {
 			// Ensure that the `origin` is `Root`.
 			ensure_root(origin)?;
 			<I32Log<T>>::append(i);
-			Self::deposit_event(Event::AppendI32 { value: i, weight });
+			Self::deposit_event(Event::AppendI32(i, weight));
 			Ok(().into())
 		}
 
 		#[pallet::weight(*weight)]
-		pub fn non_privileged_log(
+		pub(crate) fn non_privileged_log(
 			origin: OriginFor<T>,
 			i: i32,
-			weight: Weight,
+			weight: Weight
 		) -> DispatchResultWithPostInfo {
 			// Ensure that the `origin` is some signed account.
 			let sender = ensure_signed(origin)?;
 			<I32Log<T>>::append(i);
 			<AccountLog<T>>::append(sender.clone());
-			Self::deposit_event(Event::AppendI32AndAccount { sender, value: i, weight });
+			Self::deposit_event(Event::AppendI32AndAccount(sender, i, weight));
 			Ok(().into())
 		}
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	#[pallet::metadata(T::AccountId = "AccountId")]
 	pub enum Event<T: Config> {
-		AppendI32 { value: i32, weight: Weight },
-		AppendI32AndAccount { sender: T::AccountId, value: i32, weight: Weight },
+		AppendI32(i32, Weight),
+		AppendI32AndAccount(T::AccountId, i32, Weight),
 	}
 
 	#[pallet::storage]
 	#[pallet::getter(fn account_log)]
-	pub(super) type AccountLog<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
+	pub(super) type AccountLog<T: Config> = StorageValue<
+		_,
+		Vec<T::AccountId>,
+		ValueQuery
+	>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn i32_log)]
-	pub(super) type I32Log<T> = StorageValue<_, Vec<i32>, ValueQuery>;
+	pub(super) type I32Log<T> = StorageValue<
+		_,
+		Vec<i32>,
+		ValueQuery
+	>;
 }
+
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -109,12 +117,13 @@ frame_support::construct_runtime!(
 );
 
 parameter_types! {
+	pub const BlockHashCount: u64 = 250;
 	pub BlockWeights: limits::BlockWeights = limits::BlockWeights::simple_max(1024);
 }
 
 pub struct BlockEverything;
-impl Contains<Call> for BlockEverything {
-	fn contains(_: &Call) -> bool {
+impl Filter<Call> for BlockEverything {
+	fn filter(_: &Call) -> bool {
 		false
 	}
 }
@@ -134,7 +143,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
@@ -143,7 +152,6 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<16>;
 }
 
 // Implement the logger module's `Config` on the Test runtime.
@@ -164,8 +172,8 @@ pub type LoggerCall = logger::Call<Test>;
 // Build test environment by setting the root `key` for the Genesis.
 pub fn new_test_ext(root_key: u64) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-	sudo::GenesisConfig::<Test> { key: Some(root_key) }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	sudo::GenesisConfig::<Test>{
+		key: root_key,
+	}.assimilate_storage(&mut t).unwrap();
 	t.into()
 }

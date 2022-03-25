@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2015-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2015-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,10 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "std")]
-use std::error::Error as StdError;
-#[cfg(feature = "std")]
+#[cfg(feature="std")]
 use std::fmt;
+#[cfg(feature="std")]
+use std::error::Error as StdError;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// Error for trie node decoding.
@@ -26,7 +26,7 @@ pub enum Error {
 	/// Bad format.
 	BadFormat,
 	/// Decoding error.
-	Decode(codec::Error),
+	Decode(codec::Error)
 }
 
 impl From<codec::Error> for Error {
@@ -35,7 +35,7 @@ impl From<codec::Error> for Error {
 	}
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature="std")]
 impl StdError for Error {
 	fn description(&self) -> &str {
 		match self {
@@ -45,7 +45,7 @@ impl StdError for Error {
 	}
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature="std")]
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match self {

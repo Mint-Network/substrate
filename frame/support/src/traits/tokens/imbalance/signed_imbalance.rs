@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,14 +17,14 @@
 
 //! Convenience type for managing an imbalance whose sign is unknown.
 
-use super::super::imbalance::Imbalance;
-use crate::traits::misc::SameOrOther;
 use codec::FullCodec;
-use sp_runtime::traits::{AtLeast32BitUnsigned, MaybeSerializeDeserialize};
 use sp_std::fmt::Debug;
+use sp_runtime::traits::{AtLeast32BitUnsigned, MaybeSerializeDeserialize};
+use crate::traits::misc::SameOrOther;
+use super::super::imbalance::Imbalance;
 
 /// Either a positive or a negative imbalance.
-pub enum SignedImbalance<B, PositiveImbalance: Imbalance<B>> {
+pub enum SignedImbalance<B, PositiveImbalance: Imbalance<B>>{
 	/// A positive imbalance (funds have been created but none destroyed).
 	Positive(PositiveImbalance),
 	/// A negative imbalance (funds have been destroyed but none created).
@@ -32,11 +32,10 @@ pub enum SignedImbalance<B, PositiveImbalance: Imbalance<B>> {
 }
 
 impl<
-		P: Imbalance<B, Opposite = N>,
-		N: Imbalance<B, Opposite = P>,
-		B: AtLeast32BitUnsigned + FullCodec + Copy + MaybeSerializeDeserialize + Debug + Default,
-	> SignedImbalance<B, P>
-{
+	P: Imbalance<B, Opposite=N>,
+	N: Imbalance<B, Opposite=P>,
+	B: AtLeast32BitUnsigned + FullCodec + Copy + MaybeSerializeDeserialize + Debug + Default,
+> SignedImbalance<B, P> {
 	/// Create a `Positive` instance of `Self` whose value is zero.
 	pub fn zero() -> Self {
 		SignedImbalance::Positive(P::zero())
@@ -58,13 +57,12 @@ impl<
 				SignedImbalance::Positive(one.merge(other)),
 			(SignedImbalance::Negative(one), SignedImbalance::Negative(other)) =>
 				SignedImbalance::Negative(one.merge(other)),
-			(SignedImbalance::Positive(one), SignedImbalance::Negative(other)) => {
+			(SignedImbalance::Positive(one), SignedImbalance::Negative(other)) =>
 				match one.offset(other) {
 					SameOrOther::Same(positive) => SignedImbalance::Positive(positive),
 					SameOrOther::Other(negative) => SignedImbalance::Negative(negative),
 					SameOrOther::None => SignedImbalance::Positive(P::zero()),
-				}
-			},
+				},
 			(one, other) => other.merge(one),
 		}
 	}

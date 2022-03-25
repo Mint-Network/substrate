@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -39,20 +39,19 @@
 use log::{trace, warn};
 use std::sync::Arc;
 
-use parity_scale_codec::{Decode, Encode};
-use sc_client_api::backend::Backend;
+use parity_scale_codec::{Encode, Decode};
 use sp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
 use sp_finality_grandpa::GRANDPA_ENGINE_ID;
 use sp_runtime::{
 	generic::BlockId,
-	traits::{Block as BlockT, Header as HeaderT, NumberFor, One},
+	traits::{NumberFor, Block as BlockT, Header as HeaderT, One},
 };
+use sc_client_api::backend::Backend;
 
 use crate::{
+	SharedAuthoritySet, best_justification,
 	authorities::{AuthoritySetChangeId, AuthoritySetChanges},
-	best_justification,
 	justification::GrandpaJustification,
-	SharedAuthoritySet,
 };
 
 const MAX_UNKNOWN_HEADERS: usize = 100_000;
@@ -63,10 +62,9 @@ pub struct FinalityProofProvider<BE, Block: BlockT> {
 	shared_authority_set: Option<SharedAuthoritySet<Block::Hash, NumberFor<Block>>>,
 }
 
-impl<B, Block> FinalityProofProvider<B, Block>
+impl<B, Block: BlockT> FinalityProofProvider<B, Block>
 where
-	Block: BlockT,
-	B: Backend<Block>,
+	B: Backend<Block> + Send + Sync + 'static,
 {
 	/// Create new finality proof provider using:
 	///
@@ -77,7 +75,10 @@ where
 		backend: Arc<B>,
 		shared_authority_set: Option<SharedAuthoritySet<Block::Hash, NumberFor<Block>>>,
 	) -> Self {
-		FinalityProofProvider { backend, shared_authority_set }
+		FinalityProofProvider {
+			backend,
+			shared_authority_set,
+		}
 	}
 
 	/// Create new finality proof provider for the service using:
@@ -96,7 +97,7 @@ where
 impl<B, Block> FinalityProofProvider<B, Block>
 where
 	Block: BlockT,
-	B: Backend<Block>,
+	B: Backend<Block> + Send + Sync + 'static,
 {
 	/// Prove finality for the given block number by returning a Justification for the last block of
 	/// the authority set.
@@ -111,10 +112,14 @@ where
 		{
 			changes
 		} else {
-			return Ok(None)
+			return Ok(None);
 		};
 
-		prove_finality(&*self.backend, authority_set_changes, block)
+		prove_finality(
+			&*self.backend,
+			authority_set_changes,
+			block,
+		)
 	}
 }
 
@@ -160,10 +165,11 @@ where
 	if info.finalized_number < block {
 		let err = format!(
 			"Requested finality proof for descendant of #{} while we only have finalized #{}.",
-			block, info.finalized_number,
+			block,
+			info.finalized_number,
 		);
 		trace!(target: "afg", "{}", &err);
-		return Err(FinalityProofError::BlockNotYetFinalized)
+		return Err(FinalityProofError::BlockNotYetFinalized);
 	}
 
 	let (justification, just_block) = match authority_set_changes.get_set_id(block) {
@@ -178,9 +184,9 @@ where
 					"No justification found for the latest finalized block. \
 					Returning empty proof.",
 				);
-				return Ok(None)
+				return Ok(None);
 			}
-		},
+		}
 		AuthoritySetChangeId::Set(_, last_block_for_set) => {
 			let last_block_for_set_id = BlockId::Number(last_block_for_set);
 			let justification = if let Some(grandpa_justification) = backend
@@ -196,10 +202,10 @@ where
 					Returning empty proof.",
 					block,
 				);
-				return Ok(None)
+				return Ok(None);
 			};
 			(justification, last_block_for_set)
-		},
+		}
 		AuthoritySetChangeId::Unknown => {
 			warn!(
 				target: "afg",
@@ -207,8 +213,8 @@ where
 				 You need to resync to populate AuthoritySetChanges properly.",
 				block,
 			);
-			return Err(FinalityProofError::BlockNotInAuthoritySetChanges)
-		},
+			return Err(FinalityProofError::BlockNotInAuthoritySetChanges);
+		}
 	};
 
 	// Collect all headers from the requested block until the last block of the set
@@ -217,7 +223,7 @@ where
 		let mut current = block + One::one();
 		loop {
 			if current > just_block || headers.len() >= MAX_UNKNOWN_HEADERS {
-				break
+				break;
 			}
 			headers.push(backend.blockchain().expect_header(BlockId::Number(current))?);
 			current += One::one();
@@ -238,13 +244,15 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
 	use super::*;
-	use crate::{authorities::AuthoritySetChanges, BlockNumberOps, ClientError, SetId};
+	use crate::{
+		authorities::AuthoritySetChanges, BlockNumberOps, ClientError, SetId,
+	};
 	use futures::executor::block_on;
 	use sc_block_builder::BlockBuilderProvider;
 	use sc_client_api::{apply_aux, LockImportRun};
 	use sp_consensus::BlockOrigin;
-	use sp_core::crypto::UncheckedFrom;
-	use sp_finality_grandpa::GRANDPA_ENGINE_ID as ID;
+	use sp_core::crypto::Public;
+	use sp_finality_grandpa::{AuthorityId, GRANDPA_ENGINE_ID as ID};
 	use sp_keyring::Ed25519Keyring;
 	use substrate_test_runtime_client::{
 		runtime::{Block, Header, H256},
@@ -267,9 +275,8 @@ pub(crate) mod tests {
 		let proof = super::FinalityProof::<Block::Header>::decode(&mut &remote_proof[..])
 			.map_err(|_| ClientError::BadJustification("failed to decode finality proof".into()))?;
 
-		let justification: GrandpaJustification<Block> =
-			Decode::decode(&mut &proof.justification[..])
-				.map_err(|_| ClientError::JustificationDecode)?;
+		let justification: GrandpaJustification<Block> = Decode::decode(&mut &proof.justification[..])
+			.map_err(|_| ClientError::JustificationDecode)?;
 		justification.verify(current_set_id, &current_authorities)?;
 
 		Ok(proof)
@@ -313,13 +320,13 @@ pub(crate) mod tests {
 	}
 
 	fn store_best_justification(client: &TestClient, just: &GrandpaJustification<Block>) {
-		client
-			.lock_import_and_run(|import_op| {
-				crate::aux_schema::update_best_justification(just, |insert| {
-					apply_aux(import_op, insert, &[])
-				})
-			})
-			.unwrap();
+		client.lock_import_and_run(|import_op| {
+			crate::aux_schema::update_best_justification(
+				just,
+				|insert| apply_aux(import_op, insert, &[]),
+			)
+		})
+		.unwrap();
 	}
 
 	#[test]
@@ -328,7 +335,11 @@ pub(crate) mod tests {
 		let authority_set_changes = AuthoritySetChanges::empty();
 
 		// The last finalized block is 4, so we cannot provide further justifications.
-		let proof_of_5 = prove_finality(&*backend, authority_set_changes, 5);
+		let proof_of_5 = prove_finality(
+			&*backend,
+			authority_set_changes,
+			5,
+		);
 		assert!(matches!(proof_of_5, Err(FinalityProofError::BlockNotYetFinalized)));
 	}
 
@@ -341,7 +352,12 @@ pub(crate) mod tests {
 
 		// Block 4 is finalized without justification
 		// => we can't prove finality of 3
-		let proof_of_3 = prove_finality(&*backend, authority_set_changes, 3).unwrap();
+		let proof_of_3 = prove_finality(
+			&*backend,
+			authority_set_changes,
+			3,
+		)
+		.unwrap();
 		assert_eq!(proof_of_3, None);
 	}
 
@@ -350,7 +366,7 @@ pub(crate) mod tests {
 		// When we can't decode proof from Vec<u8>
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(AuthorityId::from_slice(&[3u8; 32]), 1u64)],
 			vec![42],
 		)
 		.unwrap_err();
@@ -361,7 +377,7 @@ pub(crate) mod tests {
 		// When decoded proof has zero length
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(AuthorityId::from_slice(&[3u8; 32]), 1u64)],
 			Vec::<GrandpaJustification<Block>>::new().encode(),
 		)
 		.unwrap_err();
@@ -387,17 +403,16 @@ pub(crate) mod tests {
 
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(AuthorityId::from_slice(&[3u8; 32]), 1u64)],
 			finality_proof.encode(),
-		)
-		.unwrap_err();
+		).unwrap_err();
 	}
 
 	fn create_commit<S, Id>(
 		block: Block,
 		round: u64,
 		set_id: SetId,
-		auth: &[Ed25519Keyring],
+		auth: &[Ed25519Keyring]
 	) -> finality_grandpa::Commit<H256, u64, S, Id>
 	where
 		Id: From<sp_core::ed25519::Public>,
@@ -465,7 +480,11 @@ pub(crate) mod tests {
 		let mut authority_set_changes = AuthoritySetChanges::empty();
 		authority_set_changes.append(1, 8);
 
-		let proof_of_6 = prove_finality(&*backend, authority_set_changes, 6);
+		let proof_of_6 = prove_finality(
+			&*backend,
+			authority_set_changes,
+			6,
+		);
 		assert!(matches!(proof_of_6, Err(FinalityProofError::BlockNotInAuthoritySetChanges)));
 	}
 
@@ -479,9 +498,11 @@ pub(crate) mod tests {
 		let commit = create_commit(block8.clone(), round, 1, &[Ed25519Keyring::Alice]);
 		let grandpa_just8 = GrandpaJustification::from_commit(&client, round, commit).unwrap();
 
-		client
-			.finalize_block(BlockId::Number(8), Some((ID, grandpa_just8.encode().clone())))
-			.unwrap();
+		client.finalize_block(
+			BlockId::Number(8),
+			Some((ID, grandpa_just8.encode().clone()))
+		)
+		.unwrap();
 
 		// Authority set change at block 8, so the justification stored there will be used in the
 		// FinalityProof for block 6
@@ -490,7 +511,13 @@ pub(crate) mod tests {
 		authority_set_changes.append(1, 8);
 
 		let proof_of_6: FinalityProof = Decode::decode(
-			&mut &prove_finality(&*backend, authority_set_changes.clone(), 6).unwrap().unwrap()[..],
+			&mut &prove_finality(
+				&*backend,
+				authority_set_changes.clone(),
+				6,
+			)
+			.unwrap()
+			.unwrap()[..],
 		)
 		.unwrap();
 		assert_eq!(
@@ -512,7 +539,10 @@ pub(crate) mod tests {
 		let mut authority_set_changes = AuthoritySetChanges::empty();
 		authority_set_changes.append(0, 5);
 
-		assert!(matches!(prove_finality(&*backend, authority_set_changes, 6), Ok(None)));
+		assert!(matches!(
+			prove_finality(&*backend, authority_set_changes, 6),
+			Ok(None),
+		));
 	}
 
 	#[test]
@@ -532,7 +562,13 @@ pub(crate) mod tests {
 		authority_set_changes.append(0, 5);
 
 		let proof_of_6: FinalityProof = Decode::decode(
-			&mut &prove_finality(&*backend, authority_set_changes, 6).unwrap().unwrap()[..],
+			&mut &prove_finality(
+				&*backend,
+				authority_set_changes,
+				6,
+			)
+			.unwrap()
+			.unwrap()[..],
 		)
 		.unwrap();
 		assert_eq!(

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,15 +21,12 @@ use super::*;
 use crate as pallet_node_authorization;
 
 use frame_support::{
-	ord_parameter_types,
-	traits::{ConstU32, ConstU64, GenesisBuild},
+	parameter_types, ord_parameter_types,
+	traits::GenesisBuild,
 };
 use frame_system::EnsureSignedBy;
 use sp_core::H256;
-use sp_runtime::{
-	testing::Header,
-	traits::{BlakeTwo256, IdentityLookup},
-};
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -47,8 +44,11 @@ frame_support::construct_runtime!(
 	}
 );
 
+parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+}
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type DbWeight = ();
 	type BlockWeights = ();
 	type BlockLength = ();
@@ -62,7 +62,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
@@ -71,7 +71,6 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<16>;
 }
 
 ord_parameter_types! {
@@ -80,11 +79,14 @@ ord_parameter_types! {
 	pub const Three: u64 = 3;
 	pub const Four: u64 = 4;
 }
-
+parameter_types! {
+	pub const MaxWellKnownNodes: u32 = 4;
+	pub const MaxPeerIdLength: u32 = 2;
+}
 impl Config for Test {
 	type Event = Event;
-	type MaxWellKnownNodes = ConstU32<4>;
-	type MaxPeerIdLength = ConstU32<2>;
+	type MaxWellKnownNodes = MaxWellKnownNodes;
+	type MaxPeerIdLength = MaxPeerIdLength;
 	type AddOrigin = EnsureSignedBy<One, u64>;
 	type RemoveOrigin = EnsureSignedBy<Two, u64>;
 	type SwapOrigin = EnsureSignedBy<Three, u64>;
@@ -100,8 +102,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
 	pallet_node_authorization::GenesisConfig::<Test> {
 		nodes: vec![(test_node(10), 10), (test_node(20), 20), (test_node(30), 30)],
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	}.assimilate_storage(&mut t).unwrap();
 	t.into()
 }

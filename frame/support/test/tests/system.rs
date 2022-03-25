@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,19 +16,17 @@
 // limitations under the License.
 
 use frame_support::{
-	codec::{Decode, Encode, EncodeLike},
-	traits::Get,
-	weights::RuntimeDbWeight,
+	codec::{Encode, Decode, EncodeLike}, traits::Get, weights::RuntimeDbWeight,
 };
 
 pub trait Config: 'static + Eq + Clone {
 	type Origin: Into<Result<RawOrigin<Self::AccountId>, Self::Origin>>
 		+ From<RawOrigin<Self::AccountId>>;
 
-	type BaseCallFilter: frame_support::traits::Contains<Self::Call>;
-	type BlockNumber: Decode + Encode + EncodeLike + Clone + Default + scale_info::TypeInfo;
+	type BaseCallFilter: frame_support::traits::Filter<Self::Call>;
+	type BlockNumber: Decode + Encode + EncodeLike + Clone + Default;
 	type Hash;
-	type AccountId: Encode + EncodeLike + Decode + scale_info::TypeInfo;
+	type AccountId: Encode + EncodeLike + Decode;
 	type Call;
 	type Event: From<Event<Self>>;
 	type PalletInfo: frame_support::traits::PalletInfo;
@@ -47,10 +45,7 @@ impl<T: Config> Module<T> {
 }
 
 frame_support::decl_event!(
-	pub enum Event<T>
-	where
-		BlockNumber = <T as Config>::BlockNumber,
-	{
+	pub enum Event<T> where BlockNumber = <T as Config>::BlockNumber {
 		ExtrinsicSuccess,
 		ExtrinsicFailed,
 		Ignore(BlockNumber),
@@ -63,14 +58,12 @@ frame_support::decl_error! {
 		TestError,
 		/// Error documentation
 		/// with multiple lines
-		AnotherError,
-		// Required by construct_runtime
-		CallFiltered,
+		AnotherError
 	}
 }
 
 /// Origin for the system module.
-#[derive(PartialEq, Eq, Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo)]
+#[derive(PartialEq, Eq, Clone, sp_runtime::RuntimeDebug, Encode, Decode)]
 pub enum RawOrigin<AccountId> {
 	Root,
 	Signed(AccountId),
@@ -90,8 +83,7 @@ pub type Origin<T> = RawOrigin<<T as Config>::AccountId>;
 
 #[allow(dead_code)]
 pub fn ensure_root<OuterOrigin, AccountId>(o: OuterOrigin) -> Result<(), &'static str>
-where
-	OuterOrigin: Into<Result<RawOrigin<AccountId>, OuterOrigin>>,
+	where OuterOrigin: Into<Result<RawOrigin<AccountId>, OuterOrigin>>
 {
 	o.into().map(|_| ()).map_err(|_| "bad origin: expected to be a root origin")
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,8 +19,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode};
-use sp_inherents::{InherentData, InherentIdentifier, IsFatalError};
+use codec::{Encode, Decode};
+use sp_inherents::{InherentIdentifier, IsFatalError, InherentData};
 use sp_std::time::Duration;
 
 /// The identifier for the `timestamp` inherent.
@@ -138,9 +138,9 @@ impl IsFatalError for InherentError {
 impl InherentError {
 	/// Try to create an instance ouf of the given identifier and data.
 	#[cfg(feature = "std")]
-	pub fn try_from(id: &InherentIdentifier, mut data: &[u8]) -> Option<Self> {
+	pub fn try_from(id: &InherentIdentifier, data: &[u8]) -> Option<Self> {
 		if id == &INHERENT_IDENTIFIER {
-			<InherentError as codec::Decode>::decode(&mut data).ok()
+			<InherentError as codec::Decode>::decode(&mut &data[..]).ok()
 		} else {
 			None
 		}
@@ -164,7 +164,7 @@ impl TimestampInherentData for InherentData {
 /// This timestamp is the time since the UNIX epoch.
 #[cfg(feature = "std")]
 fn current_timestamp() -> std::time::Duration {
-	use std::time::SystemTime;
+	use wasm_timer::SystemTime;
 
 	let now = SystemTime::now();
 	now.duration_since(SystemTime::UNIX_EPOCH)
@@ -190,7 +190,10 @@ impl InherentDataProvider {
 
 	/// Create `Self` using the given `timestamp`.
 	pub fn new(timestamp: InherentType) -> Self {
-		Self { max_drift: std::time::Duration::from_secs(60).into(), timestamp }
+		Self {
+			max_drift: std::time::Duration::from_secs(60).into(),
+			timestamp,
+		}
 	}
 
 	/// With the given maximum drift.
@@ -198,8 +201,8 @@ impl InherentDataProvider {
 	/// By default the maximum drift is 60 seconds.
 	///
 	/// The maximum drift is used when checking the inherents of a runtime. If the current timestamp
-	/// plus the maximum drift is smaller than the timestamp in the block, the block will be
-	/// rejected as being too far in the future.
+	/// plus the maximum drift is smaller than the timestamp in the block, the block will be rejected
+	/// as being too far in the future.
 	pub fn with_max_drift(mut self, max_drift: std::time::Duration) -> Self {
 		self.max_drift = max_drift.into();
 		self
@@ -227,7 +230,7 @@ impl sp_inherents::InherentDataProvider for InherentDataProvider {
 		&self,
 		inherent_data: &mut InherentData,
 	) -> Result<(), sp_inherents::Error> {
-		inherent_data.put_data(INHERENT_IDENTIFIER, &self.timestamp)
+		inherent_data.put_data(INHERENT_IDENTIFIER, &InherentType::from(self.timestamp))
 	}
 
 	async fn try_handle_error(
@@ -246,9 +249,9 @@ impl sp_inherents::InherentDataProvider for InherentDataProvider {
 				// halt import until timestamp is valid.
 				// reject when too far ahead.
 				if valid > timestamp + max_drift {
-					return Some(Err(sp_inherents::Error::Application(Box::from(
-						InherentError::TooFarInFuture,
-					))))
+					return Some(Err(
+						sp_inherents::Error::Application(Box::from(InherentError::TooFarInFuture))
+					))
 				}
 
 				let diff = valid.checked_sub(timestamp).unwrap_or_default();
@@ -266,3 +269,4 @@ impl sp_inherents::InherentDataProvider for InherentDataProvider {
 		}
 	}
 }
+

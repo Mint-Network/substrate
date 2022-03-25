@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -17,15 +17,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{
-	error,
-	params::{BlockNumberOrHash, PruningParams, SharedParams},
-	CliConfiguration,
+	CliConfiguration, error, params::{PruningParams, SharedParams, BlockNumberOrHash},
 };
 use log::info;
-use sc_client_api::{StorageProvider, UsageProvider};
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
-use std::{fmt::Debug, io::Write, str::FromStr, sync::Arc};
+use std::{fmt::Debug, str::FromStr, io::Write, sync::Arc};
 use structopt::StructOpt;
+use sc_client_api::{StorageProvider, UsageProvider};
 
 /// The `export-state` command used to export the state of a given block into
 /// a chain spec.

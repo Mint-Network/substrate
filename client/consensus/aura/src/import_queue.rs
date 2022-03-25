@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -18,37 +18,36 @@
 
 //! Module implementing the logic for verifying and importing AuRa blocks.
 
-use crate::{aura_err, authorities, find_pre_digest, slot_author, AuthorityId, Error};
-use codec::{Codec, Decode, Encode};
+use crate::{AuthorityId, find_pre_digest, slot_author, aura_err, Error, authorities};
+use std::{
+	sync::Arc, marker::PhantomData, hash::Hash, fmt::Debug, collections::HashMap,
+};
 use log::{debug, info, trace};
 use prometheus_endpoint::Registry;
-use sc_client_api::{backend::AuxStore, BlockOf, UsageProvider};
-use sc_consensus::{
-	block_import::{BlockImport, BlockImportParams, ForkChoiceStrategy},
-	import_queue::{BasicQueue, BoxJustificationImport, DefaultImportQueue, Verifier},
+use codec::{Encode, Decode, Codec};
+use sp_consensus::{
+	BlockImport, CanAuthorWith, ForkChoiceStrategy, BlockImportParams,
+	BlockOrigin, Error as ConsensusError, BlockCheckParams, ImportResult,
+	import_queue::{
+		Verifier, BasicQueue, DefaultImportQueue, BoxJustificationImport,
+	},
 };
-use sc_consensus_slots::{check_equivocation, CheckedHeader, InherentDataProviderExt};
-use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
-use sp_api::{ApiExt, ProvideRuntimeApi};
+use sc_client_api::{backend::AuxStore, BlockOf};
+use sp_blockchain::{well_known_cache_keys::{self, Id as CacheKeyId}, ProvideCache, HeaderBackend};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
-use sp_blockchain::{
-	well_known_cache_keys::{self, Id as CacheKeyId},
-	HeaderBackend,
-};
-use sp_consensus::{CanAuthorWith, Error as ConsensusError};
-use sp_consensus_aura::{
-	digests::CompatibleDigestItem, inherents::AuraInherentData, AuraApi, ConsensusLog,
-	AURA_ENGINE_ID,
-};
-use sp_consensus_slots::Slot;
-use sp_core::{crypto::Pair, ExecutionContext};
+use sp_runtime::{generic::{BlockId, OpaqueDigestItemId}, Justifications};
+use sp_runtime::traits::{Block as BlockT, Header, DigestItemFor, Zero};
+use sp_api::ProvideRuntimeApi;
+use sp_core::crypto::Pair;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider as _};
-use sp_runtime::{
-	generic::{BlockId, OpaqueDigestItemId},
-	traits::{Block as BlockT, Header},
-	DigestItem,
+use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_TRACE, CONSENSUS_DEBUG};
+use sc_consensus_slots::{CheckedHeader, check_equivocation, InherentDataProviderExt};
+use sp_consensus_slots::Slot;
+use sp_api::ApiExt;
+use sp_consensus_aura::{
+	digests::CompatibleDigestItem, AuraApi, inherents::AuraInherentData,
+	ConsensusLog, AURA_ENGINE_ID,
 };
-use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
 /// check a header has been signed by the right key. If the slot is too far in the future, an error
 /// will be returned. If it's successful, returns the pre-header and the digest item
@@ -62,15 +61,17 @@ fn check_header<C, B: BlockT, P: Pair>(
 	hash: B::Hash,
 	authorities: &[AuthorityId<P>],
 	check_for_equivocation: CheckForEquivocation,
-) -> Result<CheckedHeader<B::Header, (Slot, DigestItem)>, Error<B>>
-where
+) -> Result<CheckedHeader<B::Header, (Slot, DigestItemFor<B>)>, Error<B>> where
+	DigestItemFor<B>: CompatibleDigestItem<P::Signature>,
 	P::Signature: Codec,
 	C: sc_client_api::backend::AuxStore,
 	P::Public: Encode + Decode + PartialEq + Clone,
 {
 	let seal = header.digest_mut().pop().ok_or_else(|| Error::HeaderUnsealed(hash))?;
 
-	let sig = seal.as_aura_seal().ok_or_else(|| aura_err(Error::HeaderBadSeal(hash)))?;
+	let sig = seal.as_aura_seal().ok_or_else(|| {
+		aura_err(Error::HeaderBadSeal(hash))
+	})?;
 
 	let slot = find_pre_digest::<B, P::Signature>(&header)?;
 
@@ -80,17 +81,20 @@ where
 	} else {
 		// check the signature is valid under the expected authority and
 		// chain state.
-		let expected_author =
-			slot_author::<P>(slot, &authorities).ok_or_else(|| Error::SlotAuthorNotFound)?;
+		let expected_author = slot_author::<P>(slot, &authorities)
+			.ok_or_else(|| Error::SlotAuthorNotFound)?;
 
 		let pre_hash = header.hash();
 
 		if P::verify(&sig, pre_hash.as_ref(), expected_author) {
 			if check_for_equivocation.check_for_equivocation() {
-				if let Some(equivocation_proof) =
-					check_equivocation(client, slot_now, slot, &header, expected_author)
-						.map_err(Error::Client)?
-				{
+				if let Some(equivocation_proof) = check_equivocation(
+					client,
+					slot_now,
+					slot,
+					&header,
+					expected_author,
+				).map_err(Error::Client)? {
 					info!(
 						target: "aura",
 						"Slot author is equivocating at slot {} with headers {:?} and {:?}",
@@ -109,19 +113,19 @@ where
 }
 
 /// A verifier for Aura blocks.
-pub struct AuraVerifier<C, P, CAW, CIDP> {
+pub struct AuraVerifier<C, P, CAW, IDP> {
 	client: Arc<C>,
 	phantom: PhantomData<P>,
-	create_inherent_data_providers: CIDP,
+	create_inherent_data_providers: IDP,
 	can_author_with: CAW,
 	check_for_equivocation: CheckForEquivocation,
 	telemetry: Option<TelemetryHandle>,
 }
 
-impl<C, P, CAW, CIDP> AuraVerifier<C, P, CAW, CIDP> {
+impl<C, P, CAW, IDP> AuraVerifier<C, P, CAW, IDP> {
 	pub(crate) fn new(
 		client: Arc<C>,
-		create_inherent_data_providers: CIDP,
+		create_inherent_data_providers: IDP,
 		can_author_with: CAW,
 		check_for_equivocation: CheckForEquivocation,
 		telemetry: Option<TelemetryHandle>,
@@ -137,25 +141,21 @@ impl<C, P, CAW, CIDP> AuraVerifier<C, P, CAW, CIDP> {
 	}
 }
 
-impl<C, P, CAW, CIDP> AuraVerifier<C, P, CAW, CIDP>
-where
+impl<C, P, CAW, IDP> AuraVerifier<C, P, CAW, IDP> where
 	P: Send + Sync + 'static,
 	CAW: Send + Sync + 'static,
-	CIDP: Send,
+	IDP: Send,
 {
 	async fn check_inherents<B: BlockT>(
 		&self,
 		block: B,
 		block_id: BlockId<B>,
 		inherent_data: sp_inherents::InherentData,
-		create_inherent_data_providers: CIDP::InherentDataProviders,
-		execution_context: ExecutionContext,
-	) -> Result<(), Error<B>>
-	where
-		C: ProvideRuntimeApi<B>,
-		C::Api: BlockBuilderApi<B>,
+		create_inherent_data_providers: IDP::InherentDataProviders,
+	) -> Result<(), Error<B>> where
+		C: ProvideRuntimeApi<B>, C::Api: BlockBuilderApi<B>,
 		CAW: CanAuthorWith<B>,
-		CIDP: CreateInherentDataProviders<B, ()>,
+		IDP: CreateInherentDataProviders<B, ()>,
 	{
 		if let Err(e) = self.can_author_with.can_author_with(&block_id) {
 			debug!(
@@ -167,11 +167,11 @@ where
 			return Ok(())
 		}
 
-		let inherent_res = self
-			.client
-			.runtime_api()
-			.check_inherents_with_context(&block_id, execution_context, block, inherent_data)
-			.map_err(|e| Error::Client(e.into()))?;
+		let inherent_res = self.client.runtime_api().check_inherents(
+			&block_id,
+			block,
+			inherent_data,
+		).map_err(|e| Error::Client(e.into()))?;
 
 		if !inherent_res.ok() {
 			for (i, e) in inherent_res.into_errors() {
@@ -187,34 +187,43 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B: BlockT, C, P, CAW, CIDP> Verifier<B> for AuraVerifier<C, P, CAW, CIDP>
-where
-	C: ProvideRuntimeApi<B> + Send + Sync + sc_client_api::backend::AuxStore + BlockOf,
+impl<B: BlockT, C, P, CAW, IDP> Verifier<B> for AuraVerifier<C, P, CAW, IDP> where
+	C: ProvideRuntimeApi<B> +
+		Send +
+		Sync +
+		sc_client_api::backend::AuxStore +
+		ProvideCache<B> +
+		BlockOf,
 	C::Api: BlockBuilderApi<B> + AuraApi<B, AuthorityId<P>> + ApiExt<B>,
+	DigestItemFor<B>: CompatibleDigestItem<P::Signature>,
 	P: Pair + Send + Sync + 'static,
 	P::Public: Send + Sync + Hash + Eq + Clone + Decode + Encode + Debug + 'static,
 	P::Signature: Encode + Decode,
 	CAW: CanAuthorWith<B> + Send + Sync + 'static,
-	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync,
-	CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
+	IDP: CreateInherentDataProviders<B, ()> + Send + Sync,
+	IDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
 {
 	async fn verify(
 		&mut self,
-		mut block: BlockImportParams<B, ()>,
+		origin: BlockOrigin,
+		header: B::Header,
+		justifications: Option<Justifications>,
+		mut body: Option<Vec<B::Extrinsic>>,
 	) -> Result<(BlockImportParams<B, ()>, Option<Vec<(CacheKeyId, Vec<u8>)>>), String> {
-		let hash = block.header.hash();
-		let parent_hash = *block.header.parent_hash();
+		let hash = header.hash();
+		let parent_hash = *header.parent_hash();
 		let authorities = authorities(self.client.as_ref(), &BlockId::Hash(parent_hash))
 			.map_err(|e| format!("Could not fetch authorities at {:?}: {:?}", parent_hash, e))?;
 
-		let create_inherent_data_providers = self
-			.create_inherent_data_providers
-			.create_inherent_data_providers(parent_hash, ())
+		let create_inherent_data_providers = self.create_inherent_data_providers
+			.create_inherent_data_providers(
+				parent_hash,
+				(),
+			)
 			.await
 			.map_err(|e| Error::<B>::Client(sp_blockchain::Error::Application(e)))?;
 
-		let mut inherent_data = create_inherent_data_providers
-			.create_inherent_data()
+		let mut inherent_data = create_inherent_data_providers.create_inherent_data()
 			.map_err(Error::<B>::Inherent)?;
 
 		let slot_now = create_inherent_data_providers.slot();
@@ -225,25 +234,23 @@ where
 		let checked_header = check_header::<C, B, P>(
 			&self.client,
 			slot_now + 1,
-			block.header,
+			header,
 			hash,
 			&authorities[..],
 			self.check_for_equivocation,
-		)
-		.map_err(|e| e.to_string())?;
+		).map_err(|e| e.to_string())?;
 		match checked_header {
 			CheckedHeader::Checked(pre_header, (slot, seal)) => {
 				// if the body is passed through, we need to use the runtime
 				// to check that the internally-set timestamp in the inherents
 				// actually matches the slot set in the seal.
-				if let Some(inner_body) = block.body.take() {
-					let new_block = B::new(pre_header.clone(), inner_body);
+				if let Some(inner_body) = body.take() {
+					let block = B::new(pre_header.clone(), inner_body);
 
 					inherent_data.aura_replace_inherent_data(slot);
 
 					// skip the inherents verification if the runtime API is old.
-					if self
-						.client
+					if self.client
 						.runtime_api()
 						.has_api_with::<dyn BlockBuilderApi<B>, _>(
 							&BlockId::Hash(parent_hash),
@@ -252,18 +259,15 @@ where
 						.map_err(|e| format!("{:?}", e))?
 					{
 						self.check_inherents(
-							new_block.clone(),
+							block.clone(),
 							BlockId::Hash(parent_hash),
 							inherent_data,
 							create_inherent_data_providers,
-							block.origin.into(),
-						)
-						.await
-						.map_err(|e| e.to_string())?;
+						).await.map_err(|e| e.to_string())?;
 					}
 
-					let (_, inner_body) = new_block.deconstruct();
-					block.body = Some(inner_body);
+					let (_, inner_body) = block.deconstruct();
+					body = Some(inner_body);
 				}
 
 				trace!(target: "aura", "Checked {:?}; importing.", pre_header);
@@ -275,28 +279,28 @@ where
 				);
 
 				// Look for an authorities-change log.
-				let maybe_keys = pre_header
-					.digest()
+				let maybe_keys = pre_header.digest()
 					.logs()
 					.iter()
-					.filter_map(|l| {
-						l.try_to::<ConsensusLog<AuthorityId<P>>>(OpaqueDigestItemId::Consensus(
-							&AURA_ENGINE_ID,
-						))
-					})
+					.filter_map(|l| l.try_to::<ConsensusLog<AuthorityId<P>>>(
+						OpaqueDigestItemId::Consensus(&AURA_ENGINE_ID)
+					))
 					.find_map(|l| match l {
-						ConsensusLog::AuthoritiesChange(a) =>
-							Some(vec![(well_known_cache_keys::AUTHORITIES, a.encode())]),
+						ConsensusLog::AuthoritiesChange(a) => Some(
+							vec![(well_known_cache_keys::AUTHORITIES, a.encode())]
+						),
 						_ => None,
 					});
 
-				block.header = pre_header;
-				block.post_digests.push(seal);
-				block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-				block.post_hash = Some(hash);
+				let mut import_block = BlockImportParams::new(origin, pre_header);
+				import_block.post_digests.push(seal);
+				import_block.body = body;
+				import_block.justifications = justifications;
+				import_block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
+				import_block.post_hash = Some(hash);
 
-				Ok((block, maybe_keys))
-			},
+				Ok((import_block, maybe_keys))
+			}
 			CheckedHeader::Deferred(a, b) => {
 				debug!(target: "aura", "Checking {:?} failed; {:?}, {:?}.", hash, a, b);
 				telemetry!(
@@ -308,8 +312,128 @@ where
 					"b" => ?b,
 				);
 				Err(format!("Header {:?} rejected: too far in the future", hash))
-			},
+			}
 		}
+	}
+}
+
+fn initialize_authorities_cache<A, B, C>(client: &C) -> Result<(), ConsensusError> where
+	A: Codec + Debug,
+	B: BlockT,
+	C: ProvideRuntimeApi<B> + BlockOf + ProvideCache<B>,
+	C::Api: AuraApi<B, A>,
+{
+	// no cache => no initialization
+	let cache = match client.cache() {
+		Some(cache) => cache,
+		None => return Ok(()),
+	};
+
+	// check if we already have initialized the cache
+	let map_err = |error| sp_consensus::Error::from(sp_consensus::Error::ClientImport(
+		format!(
+			"Error initializing authorities cache: {}",
+			error,
+		)));
+
+	let genesis_id = BlockId::Number(Zero::zero());
+	let genesis_authorities: Option<Vec<A>> = cache
+		.get_at(&well_known_cache_keys::AUTHORITIES, &genesis_id)
+		.unwrap_or(None)
+		.and_then(|(_, _, v)| Decode::decode(&mut &v[..]).ok());
+	if genesis_authorities.is_some() {
+		return Ok(());
+	}
+
+	let genesis_authorities = authorities(client, &genesis_id)?;
+	cache.initialize(&well_known_cache_keys::AUTHORITIES, genesis_authorities.encode())
+		.map_err(map_err)?;
+
+	Ok(())
+}
+
+/// A block-import handler for Aura.
+pub struct AuraBlockImport<Block: BlockT, C, I: BlockImport<Block>, P> {
+	inner: I,
+	client: Arc<C>,
+	_phantom: PhantomData<(Block, P)>,
+}
+
+impl<Block: BlockT, C, I: Clone + BlockImport<Block>, P> Clone for AuraBlockImport<Block, C, I, P> {
+	fn clone(&self) -> Self {
+		AuraBlockImport {
+			inner: self.inner.clone(),
+			client: self.client.clone(),
+			_phantom: PhantomData,
+		}
+	}
+}
+
+impl<Block: BlockT, C, I: BlockImport<Block>, P> AuraBlockImport<Block, C, I, P> {
+	/// New aura block import.
+	pub fn new(
+		inner: I,
+		client: Arc<C>,
+	) -> Self {
+		Self {
+			inner,
+			client,
+			_phantom: PhantomData,
+		}
+	}
+}
+
+#[async_trait::async_trait]
+impl<Block: BlockT, C, I, P> BlockImport<Block> for AuraBlockImport<Block, C, I, P> where
+	I: BlockImport<Block, Transaction = sp_api::TransactionFor<C, Block>> + Send + Sync,
+	I::Error: Into<ConsensusError>,
+	C: HeaderBackend<Block> + ProvideRuntimeApi<Block>,
+	P: Pair + Send + Sync + 'static,
+	P::Public: Clone + Eq + Send + Sync + Hash + Debug + Encode + Decode,
+	P::Signature: Encode + Decode,
+	sp_api::TransactionFor<C, Block>: Send + 'static,
+{
+	type Error = ConsensusError;
+	type Transaction = sp_api::TransactionFor<C, Block>;
+
+	async fn check_block(
+		&mut self,
+		block: BlockCheckParams<Block>,
+	) -> Result<ImportResult, Self::Error> {
+		self.inner.check_block(block).await.map_err(Into::into)
+	}
+
+	async fn import_block(
+		&mut self,
+		block: BlockImportParams<Block, Self::Transaction>,
+		new_cache: HashMap<CacheKeyId, Vec<u8>>,
+	) -> Result<ImportResult, Self::Error> {
+		let hash = block.post_hash();
+		let slot = find_pre_digest::<Block, P::Signature>(&block.header)
+			.expect("valid Aura headers must contain a predigest; \
+					 header has been already verified; qed");
+
+		let parent_hash = *block.header.parent_hash();
+		let parent_header = self.client.header(BlockId::Hash(parent_hash))
+			.map_err(|e| ConsensusError::ChainLookup(e.to_string()))?
+			.ok_or_else(|| ConsensusError::ChainLookup(aura_err(
+				Error::<Block>::ParentUnavailable(parent_hash, hash)
+			).into()))?;
+
+		let parent_slot = find_pre_digest::<Block, P::Signature>(&parent_header)
+			.expect("valid Aura headers contain a pre-digest; \
+					parent header has already been verified; qed");
+
+		// make sure that slot number is strictly increasing
+		if slot <= parent_slot {
+			return Err(
+				ConsensusError::ClientImport(aura_err(
+					Error::<Block>::SlotMustIncrease(parent_slot, slot)
+				).into())
+			);
+		}
+
+		self.inner.import_block(block, new_cache).await.map_err(Into::into)
 	}
 }
 
@@ -371,23 +495,23 @@ pub fn import_queue<'a, P, Block, I, C, S, CAW, CIDP>(
 		can_author_with,
 		check_for_equivocation,
 		telemetry,
-	}: ImportQueueParams<'a, Block, I, C, S, CAW, CIDP>,
-) -> Result<DefaultImportQueue<Block, C>, sp_consensus::Error>
-where
+	}: ImportQueueParams<'a, Block, I, C, S, CAW, CIDP>
+) -> Result<DefaultImportQueue<Block, C>, sp_consensus::Error> where
 	Block: BlockT,
 	C::Api: BlockBuilderApi<Block> + AuraApi<Block, AuthorityId<P>> + ApiExt<Block>,
 	C: 'static
 		+ ProvideRuntimeApi<Block>
 		+ BlockOf
+		+ ProvideCache<Block>
 		+ Send
 		+ Sync
 		+ AuxStore
-		+ UsageProvider<Block>
 		+ HeaderBackend<Block>,
-	I: BlockImport<Block, Error = ConsensusError, Transaction = sp_api::TransactionFor<C, Block>>
+	I: BlockImport<Block, Error=ConsensusError, Transaction = sp_api::TransactionFor<C, Block>>
 		+ Send
 		+ Sync
 		+ 'static,
+	DigestItemFor<Block>: CompatibleDigestItem<P::Signature>,
 	P: Pair + Send + Sync + 'static,
 	P::Public: Clone + Eq + Send + Sync + Hash + Debug + Encode + Decode,
 	P::Signature: Encode + Decode,
@@ -396,46 +520,21 @@ where
 	CIDP: CreateInherentDataProviders<Block, ()> + Sync + Send + 'static,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
 {
-	let verifier = build_verifier::<P, _, _, _>(BuildVerifierParams {
+	initialize_authorities_cache(&*client)?;
+
+	let verifier = AuraVerifier::<_, P, _, _>::new(
 		client,
 		create_inherent_data_providers,
 		can_author_with,
 		check_for_equivocation,
 		telemetry,
-	});
+	);
 
-	Ok(BasicQueue::new(verifier, Box::new(block_import), justification_import, spawner, registry))
-}
-
-/// Parameters of [`build_verifier`].
-pub struct BuildVerifierParams<C, CIDP, CAW> {
-	/// The client to interact with the chain.
-	pub client: Arc<C>,
-	/// Something that can create the inherent data providers.
-	pub create_inherent_data_providers: CIDP,
-	/// Can we author with the current node?
-	pub can_author_with: CAW,
-	/// Should we check for equivocation?
-	pub check_for_equivocation: CheckForEquivocation,
-	/// Telemetry instance used to report telemetry metrics.
-	pub telemetry: Option<TelemetryHandle>,
-}
-
-/// Build the [`AuraVerifier`]
-pub fn build_verifier<P, C, CIDP, CAW>(
-	BuildVerifierParams {
-		client,
-		create_inherent_data_providers,
-		can_author_with,
-		check_for_equivocation,
-		telemetry,
-	}: BuildVerifierParams<C, CIDP, CAW>,
-) -> AuraVerifier<C, P, CAW, CIDP> {
-	AuraVerifier::<_, P, _, _>::new(
-		client,
-		create_inherent_data_providers,
-		can_author_with,
-		check_for_equivocation,
-		telemetry,
-	)
+	Ok(BasicQueue::new(
+		verifier,
+		Box::new(block_import),
+		justification_import,
+		spawner,
+		registry,
+	))
 }

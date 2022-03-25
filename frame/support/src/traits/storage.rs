@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,7 @@ use sp_std::prelude::*;
 
 /// An instance of a pallet in the storage.
 ///
-/// It is required that these instances are unique, to support multiple instances per pallet in the
-/// same runtime!
+/// It is required that these instances are unique, to support multiple instances per pallet in the same runtime!
 ///
 /// E.g. for module MyModule default instance will have prefix "MyModule" and other instances
 /// "InstanceNMyModule".
@@ -49,15 +48,11 @@ pub trait StorageInstance {
 	const STORAGE_PREFIX: &'static str;
 }
 
-/// Metadata about storage from the runtime.
+/// Some info about an individual storage in a pallet.
 #[derive(codec::Encode, codec::Decode, crate::RuntimeDebug, Eq, PartialEq, Clone)]
 pub struct StorageInfo {
-	/// Encoded string of pallet name.
-	pub pallet_name: Vec<u8>,
-	/// Encoded string of storage name.
-	pub storage_name: Vec<u8>,
-	/// The prefix of the storage. All keys after the prefix are considered part of this storage.
-	pub prefix: Vec<u8>,
+	/// The prefix of the storage. All keys after the prefix are considered part of the storage
+	pub prefix: [u8; 32],
 	/// The maximum number of values in the storage, or none if no maximum specified.
 	pub max_values: Option<u32>,
 	/// The maximum size of key/values in the storage, or none if no maximum specified.
@@ -78,12 +73,4 @@ impl StorageInfoTrait for Tuple {
 		for_tuples!( #( res.extend_from_slice(&Tuple::storage_info()); )* );
 		res
 	}
-}
-
-/// Similar to [`StorageInfoTrait`], a trait to give partial information about storage.
-///
-/// This is useful when a type can give some partial information with its generic parameter doesn't
-/// implement some bounds.
-pub trait PartialStorageInfoTrait {
-	fn partial_storage_info() -> Vec<StorageInfo>;
 }

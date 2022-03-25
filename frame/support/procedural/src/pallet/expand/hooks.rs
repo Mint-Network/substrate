@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,35 +17,24 @@
 
 use crate::pallet::Def;
 
-///
 /// * implement the individual traits using the Hooks trait
 pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
-	let (where_clause, span, has_runtime_upgrade) = match def.hooks.as_ref() {
-		Some(hooks) => {
-			let where_clause = hooks.where_clause.clone();
-			let span = hooks.attr_span;
-			let has_runtime_upgrade = hooks.has_runtime_upgrade;
-			(where_clause, span, has_runtime_upgrade)
-		},
-		None => (None, def.pallet_struct.attr_span, false),
-	};
-
 	let frame_support = &def.frame_support;
-	let type_impl_gen = &def.type_impl_generics(span);
-	let type_use_gen = &def.type_use_generics(span);
+	let type_impl_gen = &def.type_impl_generics(def.hooks.attr_span);
+	let type_use_gen = &def.type_use_generics(def.hooks.attr_span);
 	let pallet_ident = &def.pallet_struct.pallet;
+	let where_clause = &def.hooks.where_clause;
 	let frame_system = &def.frame_system;
+	let has_runtime_upgrade = def.hooks.has_runtime_upgrade;
 
 	let log_runtime_upgrade = if has_runtime_upgrade {
 		// a migration is defined here.
 		quote::quote! {
 			#frame_support::log::info!(
 				target: #frame_support::LOG_TARGET,
-				"⚠️ {} declares internal migrations (which *might* execute). \
-				 On-chain `{:?}` vs current storage version `{:?}`",
+				"⚠️ {} declares internal migrations (which *might* execute), setting storage version to {:?}",
 				pallet_name,
-				<Self as #frame_support::traits::GetStorageVersion>::on_chain_storage_version(),
-				<Self as #frame_support::traits::GetStorageVersion>::current_storage_version(),
+				new_storage_version,
 			);
 		}
 	} else {
@@ -53,26 +42,14 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 		quote::quote! {
 			#frame_support::log::info!(
 				target: #frame_support::LOG_TARGET,
-				"✅ no migration for {}",
+				"✅ no migration for {}, setting storage version to {:?}",
 				pallet_name,
+				new_storage_version,
 			);
 		}
 	};
 
-	let hooks_impl = if def.hooks.is_none() {
-		let frame_system = &def.frame_system;
-		quote::quote! {
-			impl<#type_impl_gen>
-				#frame_support::traits::Hooks<<T as #frame_system::Config>::BlockNumber>
-				for Pallet<#type_use_gen> {}
-		}
-	} else {
-		proc_macro2::TokenStream::new()
-	};
-
-	quote::quote_spanned!(span =>
-		#hooks_impl
-
+	quote::quote_spanned!(def.hooks.attr_span =>
 		impl<#type_impl_gen>
 			#frame_support::traits::OnFinalize<<T as #frame_system::Config>::BlockNumber>
 			for #pallet_ident<#type_use_gen> #where_clause
@@ -133,6 +110,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 				);
 
 				// log info about the upgrade.
+				let new_storage_version = #frame_support::crate_to_pallet_version!();
 				let pallet_name = <
 					<T as #frame_system::Config>::PalletInfo
 					as
@@ -140,11 +118,19 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 				>::name::<Self>().unwrap_or("<unknown pallet name>");
 				#log_runtime_upgrade
 
-				<
+				let result = <
 					Self as #frame_support::traits::Hooks<
 						<T as #frame_system::Config>::BlockNumber
 					>
-				>::on_runtime_upgrade()
+				>::on_runtime_upgrade();
+
+				new_storage_version.put_into_storage::<<T as #frame_system::Config>::PalletInfo, Self>();
+
+				let additional_write = <
+					<T as #frame_system::Config>::DbWeight as #frame_support::traits::Get<_>
+				>::get().writes(1);
+
+				result.saturating_add(additional_write)
 			}
 
 			#[cfg(feature = "try-runtime")]

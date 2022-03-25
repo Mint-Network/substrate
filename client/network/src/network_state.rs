@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -22,10 +22,7 @@
 
 use libp2p::{core::ConnectedPoint, Multiaddr};
 use serde::{Deserialize, Serialize};
-use std::{
-	collections::{HashMap, HashSet},
-	time::Duration,
-};
+use std::{collections::{HashMap, HashSet}, time::Duration};
 
 /// Returns general information about the networking.
 ///
@@ -93,9 +90,13 @@ pub enum PeerEndpoint {
 impl From<ConnectedPoint> for PeerEndpoint {
 	fn from(endpoint: ConnectedPoint) -> Self {
 		match endpoint {
-			ConnectedPoint::Dialer { address } => Self::Dialing(address),
+			ConnectedPoint::Dialer { address } =>
+				PeerEndpoint::Dialing(address),
 			ConnectedPoint::Listener { local_addr, send_back_addr } =>
-				Self::Listening { local_addr, send_back_addr },
+				PeerEndpoint::Listening {
+					local_addr,
+					send_back_addr
+				}
 		}
 	}
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -22,9 +22,10 @@
 //! `CompatibleDigestItem` trait to appear in public interfaces.
 
 use crate::AURA_ENGINE_ID;
-use codec::{Codec, Encode};
-use sp_consensus_slots::Slot;
 use sp_runtime::generic::DigestItem;
+use sp_consensus_slots::Slot;
+use codec::{Encode, Codec};
+use sp_std::fmt::Debug;
 
 /// A digest item which is usable with aura consensus.
 pub trait CompatibleDigestItem<Signature>: Sized {
@@ -41,9 +42,9 @@ pub trait CompatibleDigestItem<Signature>: Sized {
 	fn as_aura_pre_digest(&self) -> Option<Slot>;
 }
 
-impl<Signature> CompatibleDigestItem<Signature> for DigestItem
-where
+impl<Signature, Hash> CompatibleDigestItem<Signature> for DigestItem<Hash> where
 	Signature: Codec,
+	Hash: Debug + Send + Sync + Eq + Clone + Codec + 'static
 {
 	fn aura_seal(signature: Signature) -> Self {
 		DigestItem::Seal(AURA_ENGINE_ID, signature.encode())

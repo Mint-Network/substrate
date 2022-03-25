@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,12 +20,17 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::Encode;
-use frame_benchmarking::{benchmarks, whitelisted_caller};
-use frame_support::{storage, traits::Get, weights::DispatchClass};
-use frame_system::{Call, Pallet as System, RawOrigin};
-use sp_core::storage::well_known_keys;
+use sp_std::vec;
+use sp_std::prelude::*;
+use sp_core::{ChangesTrieConfiguration, storage::well_known_keys};
 use sp_runtime::traits::Hash;
-use sp_std::{prelude::*, vec};
+use frame_benchmarking::{benchmarks, whitelisted_caller, impl_benchmark_test_suite};
+use frame_support::{
+	storage,
+	traits::Get,
+	weights::DispatchClass,
+};
+use frame_system::{Pallet as System, Call, RawOrigin, DigestItemOf};
 
 mod mock;
 
@@ -62,7 +67,23 @@ benchmarks! {
 		assert_eq!(current_code.len(), 4_000_000 as usize);
 	}
 
-	#[skip_meta]
+	set_changes_trie_config {
+		let d = 1000;
+
+		let digest_item = DigestItemOf::<T>::Other(vec![]);
+
+		for i in 0 .. d {
+			System::<T>::deposit_log(digest_item.clone());
+		}
+		let changes_trie_config = ChangesTrieConfiguration {
+			digest_interval: d,
+			digest_levels: d,
+		};
+	}: _(RawOrigin::Root, Some(changes_trie_config))
+	verify {
+		assert_eq!(System::<T>::digest().logs.len(), (d + 1) as usize)
+	}
+
 	set_storage {
 		let i in 1 .. 1000;
 
@@ -79,7 +100,6 @@ benchmarks! {
 		assert_eq!(value, last_hash.as_ref().to_vec());
 	}
 
-	#[skip_meta]
 	kill_storage {
 		let i in 1 .. 1000;
 
@@ -101,7 +121,6 @@ benchmarks! {
 		assert_eq!(storage::unhashed::get_raw(last_hash.as_ref()), None);
 	}
 
-	#[skip_meta]
 	kill_prefix {
 		let p in 1 .. 1000;
 
@@ -123,6 +142,10 @@ benchmarks! {
 	verify {
 		assert_eq!(storage::unhashed::get_raw(&last_key), None);
 	}
-
-	impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
 }
+
+impl_benchmark_test_suite!(
+	Pallet,
+	crate::mock::new_test_ext(),
+	crate::mock::Test,
+);

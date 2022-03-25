@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,13 +19,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use sp_std::{prelude::*, result::Result};
+use sp_std::{result::Result, prelude::*};
 
-#[cfg(feature = "std")]
-use codec::Decode;
-use codec::Encode;
-use sp_inherents::{Error, InherentData, InherentIdentifier, IsFatalError};
-use sp_runtime::{traits::Header as HeaderT, RuntimeString};
+use codec::{Encode, Decode};
+use sp_inherents::{Error, InherentIdentifier, InherentData, IsFatalError};
+use sp_runtime::{RuntimeString, traits::Header as HeaderT};
 
 /// The identifier for the `uncles` inherent.
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"uncles00";
@@ -88,13 +86,13 @@ impl<H: HeaderT> sp_inherents::InherentDataProvider for InherentDataProvider<H> 
 	async fn try_handle_error(
 		&self,
 		identifier: &InherentIdentifier,
-		mut error: &[u8],
+		error: &[u8],
 	) -> Option<Result<(), Error>> {
 		if *identifier != INHERENT_IDENTIFIER {
 			return None
 		}
 
-		let error = InherentError::decode(&mut error).ok()?;
+		let error = InherentError::decode(&mut &error[..]).ok()?;
 
 		Some(Err(Error::Application(Box::from(format!("{:?}", error)))))
 	}

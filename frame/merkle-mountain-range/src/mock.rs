@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,18 +15,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate as pallet_mmr;
 use crate::*;
+use crate as pallet_mmr;
 
-use codec::{Decode, Encode};
-use frame_support::traits::{ConstU32, ConstU64};
-use pallet_mmr_primitives::{Compact, LeafDataProvider};
+use codec::{Encode, Decode};
+use frame_support::parameter_types;
+use pallet_mmr_primitives::{LeafDataProvider, Compact};
 use sp_core::H256;
 use sp_runtime::{
 	testing::Header,
-	traits::{BlakeTwo256, IdentityLookup, Keccak256},
+	traits::{
+		BlakeTwo256, Keccak256, IdentityLookup,
+	},
 };
-use sp_std::{cell::RefCell, prelude::*};
+use sp_std::cell::RefCell;
+use sp_std::prelude::*;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -38,12 +41,15 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-		MMR: pallet_mmr::{Pallet, Storage},
+		MMR: pallet_mmr::{Pallet, Call, Storage},
 	}
 );
 
+parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+}
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type Origin = Origin;
 	type Call = Call;
 	type Index = u64;
@@ -54,7 +60,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type BlockWeights = ();
 	type BlockLength = ();
@@ -66,7 +72,6 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = ConstU32<16>;
 }
 
 impl Config for Test {
@@ -87,7 +92,10 @@ pub struct LeafData {
 
 impl LeafData {
 	pub fn new(a: u64) -> Self {
-		Self { a, b: Default::default() }
+		Self {
+			a,
+			b: Default::default(),
+		}
 	}
 }
 

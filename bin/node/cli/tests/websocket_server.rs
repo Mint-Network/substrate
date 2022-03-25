@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2021-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -116,6 +116,7 @@ impl WsServer {
 	/// # Panic
 	///
 	/// Panics if no connection is pending.
+	///
 	pub fn accept(&mut self) {
 		let pending_incoming = self.pending_incoming.take().expect("no pending socket");
 
@@ -128,10 +129,15 @@ impl WsServer {
 			};
 
 			match server
-				.send_response(&{ Response::Accept { key: &websocket_key, protocol: None } })
+				.send_response(&{
+					Response::Accept {
+						key: &websocket_key,
+						protocol: None,
+					}
+				})
 				.await
 			{
-				Ok(()) => {},
+				Ok(()) => {}
 				Err(err) => return Err(Box::new(err) as Box<_>),
 			};
 
@@ -147,6 +153,7 @@ impl WsServer {
 	/// # Panic
 	///
 	/// Panics if no connection is pending.
+	///
 	pub fn reject(&mut self) {
 		let _ = self.pending_incoming.take().expect("no pending socket");
 	}

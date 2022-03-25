@@ -14,7 +14,7 @@ mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		pub fn foo(origin: OriginFor<T>) -> ::DispatchResult { todo!() }
+		fn foo(origin: OriginFor<T>) -> ::DispatchResult { todo!() }
 	}
 }
 

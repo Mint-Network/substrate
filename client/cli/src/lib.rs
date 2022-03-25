@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -35,8 +35,8 @@ pub use config::*;
 pub use error::*;
 pub use params::*;
 pub use runner::*;
-use sc_service::Configuration;
 pub use sc_service::{ChainSpec, Role};
+use sc_service::{Configuration, TaskExecutor};
 pub use sc_tracing::logging::LoggerBuilder;
 pub use sp_version::RuntimeVersion;
 use std::io::Write;
@@ -92,9 +92,8 @@ pub trait SubstrateCli: Sized {
 	fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn ChainSpec>, String>;
 
 	/// Helper function used to parse the command line arguments. This is the equivalent of
-	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the
-	/// name of the application, author, "about" and version. It will also set
-	/// `AppSettings::GlobalVersion`.
+	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the name of
+	/// the application, author, "about" and version. It will also set `AppSettings::GlobalVersion`.
 	///
 	/// To allow running the node without subcommand, tt also sets a few more settings:
 	/// `AppSettings::ArgsNegateSubcommands` and `AppSettings::SubcommandsNegateReqs`.
@@ -109,9 +108,8 @@ pub trait SubstrateCli: Sized {
 	}
 
 	/// Helper function used to parse the command line arguments. This is the equivalent of
-	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the
-	/// name of the application, author, "about" and version. It will also set
-	/// `AppSettings::GlobalVersion`.
+	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the name of
+	/// the application, author, "about" and version. It will also set `AppSettings::GlobalVersion`.
 	///
 	/// To allow running the node without subcommand, it also sets a few more settings:
 	/// `AppSettings::ArgsNegateSubcommands` and `AppSettings::SubcommandsNegateReqs`.
@@ -141,7 +139,6 @@ pub trait SubstrateCli: Sized {
 				AppSettings::GlobalVersion,
 				AppSettings::ArgsNegateSubcommands,
 				AppSettings::SubcommandsNegateReqs,
-				AppSettings::ColoredHelp,
 			]);
 
 		let matches = match app.get_matches_from_safe(iter) {
@@ -161,16 +158,15 @@ pub trait SubstrateCli: Sized {
 					let _ = std::io::stdout().write_all(e.message.as_bytes());
 					std::process::exit(0);
 				}
-			},
+			}
 		};
 
 		<Self as StructOpt>::from_clap(&matches)
 	}
 
 	/// Helper function used to parse the command line arguments. This is the equivalent of
-	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the
-	/// name of the application, author, "about" and version. It will also set
-	/// `AppSettings::GlobalVersion`.
+	/// `structopt`'s `from_iter()` except that it takes a `VersionInfo` argument to provide the name of
+	/// the application, author, "about" and version. It will also set `AppSettings::GlobalVersion`.
 	///
 	/// To allow running the node without subcommand, it also sets a few more settings:
 	/// `AppSettings::ArgsNegateSubcommands` and `AppSettings::SubcommandsNegateReqs`.
@@ -216,54 +212,18 @@ pub trait SubstrateCli: Sized {
 	fn create_configuration<T: CliConfiguration<DVC>, DVC: DefaultConfigurationValues>(
 		&self,
 		command: &T,
-		tokio_handle: tokio::runtime::Handle,
+		task_executor: TaskExecutor,
 	) -> error::Result<Configuration> {
-		command.create_configuration(self, tokio_handle)
+		command.create_configuration(self, task_executor)
 	}
 
 	/// Create a runner for the command provided in argument. This will create a Configuration and
 	/// a tokio runtime
 	fn create_runner<T: CliConfiguration>(&self, command: &T) -> error::Result<Runner<Self>> {
-		let tokio_runtime = build_runtime()?;
-		let config = command.create_configuration(self, tokio_runtime.handle().clone())?;
-
-		command.init(&Self::support_url(), &Self::impl_version(), |_, _| {}, &config)?;
-		Runner::new(config, tokio_runtime)
+		command.init::<Self>()?;
+		Runner::new(self, command)
 	}
 
-	/// Create a runner for the command provided in argument. The `logger_hook` can be used to setup
-	/// a custom profiler or update the logger configuration before it is initialized.
-	///
-	/// Example:
-	/// ```
-	/// use sc_tracing::{SpanDatum, TraceEvent};
-	/// struct TestProfiler;
-	///
-	/// impl sc_tracing::TraceHandler for TestProfiler {
-	///  	fn handle_span(&self, sd: &SpanDatum) {}
-	/// 		fn handle_event(&self, _event: &TraceEvent) {}
-	/// };
-	///
-	/// fn logger_hook() -> impl FnOnce(&mut sc_cli::LoggerBuilder, &sc_service::Configuration) -> () {
-	/// 	|logger_builder, config| {
-	/// 			logger_builder.with_custom_profiling(Box::new(TestProfiler{}));
-	/// 	}
-	/// }
-	/// ```
-	fn create_runner_with_logger_hook<T: CliConfiguration, F>(
-		&self,
-		command: &T,
-		logger_hook: F,
-	) -> error::Result<Runner<Self>>
-	where
-		F: FnOnce(&mut LoggerBuilder, &Configuration),
-	{
-		let tokio_runtime = build_runtime()?;
-		let config = command.create_configuration(self, tokio_runtime.handle().clone())?;
-
-		command.init(&Self::support_url(), &Self::impl_version(), logger_hook, &config)?;
-		Runner::new(config, tokio_runtime)
-	}
 	/// Native runtime version.
 	fn native_runtime_version(chain_spec: &Box<dyn ChainSpec>) -> &'static RuntimeVersion;
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,8 @@
 
 use super::*;
 
-use frame_benchmarking::{account, benchmarks_instance_pallet, whitelisted_caller};
 use frame_system::RawOrigin;
+use frame_benchmarking::{benchmarks_instance_pallet, account, whitelisted_caller, impl_benchmark_test_suite};
 use sp_runtime::traits::Bounded;
 
 use crate::Pallet as Balances;
@@ -30,6 +30,7 @@ use crate::Pallet as Balances;
 const SEED: u32 = 0;
 // existential deposit multiplier
 const ED_MULTIPLIER: u32 = 10;
+
 
 benchmarks_instance_pallet! {
 	// Benchmark `transfer` extrinsic with the worst possible conditions:
@@ -39,7 +40,7 @@ benchmarks_instance_pallet! {
 		let existential_deposit = T::ExistentialDeposit::get();
 		let caller = whitelisted_caller();
 
-		// Give some multiple of the existential deposit
+		// Give some multiple of the existential deposit + creation fee + transfer fee
 		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
 		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&caller, balance);
 
@@ -129,7 +130,7 @@ benchmarks_instance_pallet! {
 		let source: T::AccountId = account("source", 0, SEED);
 		let source_lookup: <T::Lookup as StaticLookup>::Source = T::Lookup::unlookup(source.clone());
 
-		// Give some multiple of the existential deposit
+		// Give some multiple of the existential deposit + creation fee + transfer fee
 		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
 		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&source, balance);
 
@@ -153,7 +154,7 @@ benchmarks_instance_pallet! {
 		let existential_deposit = T::ExistentialDeposit::get();
 		let caller = whitelisted_caller();
 
-		// Give some multiple of the existential deposit
+		// Give some multiple of the existential deposit + creation fee + transfer fee
 		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
 		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&caller, balance);
 
@@ -175,48 +176,10 @@ benchmarks_instance_pallet! {
 		assert_eq!(Balances::<T, I>::free_balance(&caller), Zero::zero());
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
 	}
-
-	// Benchmark `transfer_all` with the worst possible condition:
-	// * The recipient account is created
-	// * The sender is killed
-	transfer_all {
-		let caller = whitelisted_caller();
-		let recipient: T::AccountId = account("recipient", 0, SEED);
-		let recipient_lookup: <T::Lookup as StaticLookup>::Source = T::Lookup::unlookup(recipient.clone());
-
-		// Give some multiple of the existential deposit
-		let existential_deposit = T::ExistentialDeposit::get();
-		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
-		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&caller, balance);
-	}: _(RawOrigin::Signed(caller.clone()), recipient_lookup, false)
-	verify {
-		assert!(Balances::<T, I>::free_balance(&caller).is_zero());
-		assert_eq!(Balances::<T, I>::free_balance(&recipient), balance);
-	}
-
-	force_unreserve {
-		let user: T::AccountId = account("user", 0, SEED);
-		let user_lookup: <T::Lookup as StaticLookup>::Source = T::Lookup::unlookup(user.clone());
-
-		// Give some multiple of the existential deposit
-		let existential_deposit = T::ExistentialDeposit::get();
-		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
-		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&user, balance);
-
-		// Reserve the balance
-		<Balances<T, I> as ReservableCurrency<_>>::reserve(&user, balance)?;
-		assert_eq!(Balances::<T, I>::reserved_balance(&user), balance);
-		assert!(Balances::<T, I>::free_balance(&user).is_zero());
-
-	}: _(RawOrigin::Root, user_lookup, balance)
-	verify {
-		assert!(Balances::<T, I>::reserved_balance(&user).is_zero());
-		assert_eq!(Balances::<T, I>::free_balance(&user), balance);
-	}
-
-	impl_benchmark_test_suite!(
-		Balances,
-		crate::tests_composite::ExtBuilder::default().build(),
-		crate::tests_composite::Test,
-	)
 }
+
+impl_benchmark_test_suite!(
+	Balances,
+	crate::tests_composite::ExtBuilder::default().build(),
+	crate::tests_composite::Test,
+);

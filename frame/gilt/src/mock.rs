@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,14 +20,11 @@
 use crate as pallet_gilt;
 
 use frame_support::{
-	ord_parameter_types, parameter_types,
-	traits::{ConstU16, ConstU32, ConstU64, Currency, GenesisBuild, OnFinalize, OnInitialize},
+	parameter_types, ord_parameter_types,
+	traits::{OnInitialize, OnFinalize, GenesisBuild, Currency},
 };
 use sp_core::H256;
-use sp_runtime::{
-	testing::Header,
-	traits::{BlakeTwo256, IdentityLookup},
-};
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -45,8 +42,13 @@ frame_support::construct_runtime!(
 	}
 );
 
+parameter_types! {
+	pub const BlockHashCount: u64 = 250;
+	pub const SS58Prefix: u8 = 42;
+}
+
 impl frame_system::Config for Test {
-	type BaseCallFilter = frame_support::traits::Everything;
+	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
 	type Origin = Origin;
@@ -59,7 +61,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = ConstU64<250>;
+	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type Version = ();
 	type PalletInfo = PalletInfo;
@@ -67,25 +69,33 @@ impl frame_system::Config for Test {
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 	type SystemWeightInfo = ();
-	type SS58Prefix = ConstU16<42>;
+	type SS58Prefix = SS58Prefix;
 	type OnSetCode = ();
-	type MaxConsumers = frame_support::traits::ConstU32<16>;
+}
+
+parameter_types! {
+	pub const ExistentialDeposit: u64 = 1;
 }
 
 impl pallet_balances::Config for Test {
 	type Balance = u64;
 	type DustRemoval = ();
 	type Event = Event;
-	type ExistentialDeposit = frame_support::traits::ConstU64<1>;
+	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = System;
 	type WeightInfo = ();
 	type MaxLocks = ();
-	type MaxReserves = ();
-	type ReserveIdentifier = [u8; 8];
 }
 
 parameter_types! {
 	pub IgnoredIssuance: u64 = Balances::total_balance(&0); // Account zero is ignored.
+	pub const QueueCount: u32 = 3;
+	pub const MaxQueueLen: u32 = 3;
+	pub const FifoQueueLen: u32 = 1;
+	pub const Period: u64 = 3;
+	pub const MinFreeze: u64 = 2;
+	pub const IntakePeriod: u64 = 2;
+	pub const MaxIntakeBids: u32 = 2;
 }
 ord_parameter_types! {
 	pub const One: u64 = 1;
@@ -99,13 +109,13 @@ impl pallet_gilt::Config for Test {
 	type Deficit = ();
 	type Surplus = ();
 	type IgnoredIssuance = IgnoredIssuance;
-	type QueueCount = ConstU32<3>;
-	type MaxQueueLen = ConstU32<3>;
-	type FifoQueueLen = ConstU32<1>;
-	type Period = ConstU64<3>;
-	type MinFreeze = ConstU64<2>;
-	type IntakePeriod = ConstU64<2>;
-	type MaxIntakeBids = ConstU32<2>;
+	type QueueCount = QueueCount;
+	type MaxQueueLen = MaxQueueLen;
+	type FifoQueueLen = FifoQueueLen;
+	type Period = Period;
+	type MinFreeze = MinFreeze;
+	type IntakePeriod = IntakePeriod;
+	type MaxIntakeBids = MaxIntakeBids;
 	type WeightInfo = ();
 }
 
@@ -113,11 +123,9 @@ impl pallet_gilt::Config for Test {
 // our desired mockup.
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-	pallet_balances::GenesisConfig::<Test> {
+	pallet_balances::GenesisConfig::<Test>{
 		balances: vec![(1, 100), (2, 100), (3, 100), (4, 100)],
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	}.assimilate_storage(&mut t).unwrap();
 	GenesisBuild::<Test>::assimilate_storage(&crate::GenesisConfig, &mut t).unwrap();
 	t.into()
 }

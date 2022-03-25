@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2018-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -18,12 +18,7 @@
 
 use futures::prelude::*;
 use libp2p::core::upgrade::{InboundUpgrade, ProtocolName, UpgradeInfo};
-use std::{
-	iter::FromIterator,
-	pin::Pin,
-	task::{Context, Poll},
-	vec,
-};
+use std::{iter::FromIterator, pin::Pin, task::{Context, Poll}, vec};
 
 // TODO: move this to libp2p => https://github.com/libp2p/rust-libp2p/issues/1445
 
@@ -34,13 +29,13 @@ pub struct UpgradeCollec<T>(pub Vec<T>);
 
 impl<T> From<Vec<T>> for UpgradeCollec<T> {
 	fn from(list: Vec<T>) -> Self {
-		Self(list)
+		UpgradeCollec(list)
 	}
 }
 
 impl<T> FromIterator<T> for UpgradeCollec<T> {
 	fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-		Self(iter.into_iter().collect())
+		UpgradeCollec(iter.into_iter().collect())
 	}
 }
 
@@ -49,10 +44,9 @@ impl<T: UpgradeInfo> UpgradeInfo for UpgradeCollec<T> {
 	type InfoIter = vec::IntoIter<Self::Info>;
 
 	fn protocol_info(&self) -> Self::InfoIter {
-		self.0
-			.iter()
-			.enumerate()
-			.flat_map(|(n, p)| p.protocol_info().into_iter().map(move |i| ProtoNameWithUsize(i, n)))
+		self.0.iter().enumerate()
+			.flat_map(|(n, p)|
+				p.protocol_info().into_iter().map(move |i| ProtoNameWithUsize(i, n)))
 			.collect::<Vec<_>>()
 			.into_iter()
 	}

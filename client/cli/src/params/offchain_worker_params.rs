@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -27,7 +27,8 @@ use sc_network::config::Role;
 use sc_service::config::OffchainWorkerConfig;
 use structopt::StructOpt;
 
-use crate::{error, OffchainWorkerEnabled};
+use crate::error;
+use crate::OffchainWorkerEnabled;
 
 /// Offchain worker related parameters.
 #[derive(Debug, StructOpt, Clone)]
@@ -48,7 +49,10 @@ pub struct OffchainWorkerParams {
 	///
 	/// Enables a runtime to write directly to a offchain workers
 	/// DB during block import.
-	#[structopt(long = "enable-offchain-indexing", value_name = "ENABLE_OFFCHAIN_INDEXING")]
+	#[structopt(
+		long = "enable-offchain-indexing",
+		value_name = "ENABLE_OFFCHAIN_INDEXING"
+	)]
 	pub indexing_enabled: bool,
 }
 
@@ -63,6 +67,9 @@ impl OffchainWorkerParams {
 		};
 
 		let indexing_enabled = self.indexing_enabled;
-		Ok(OffchainWorkerConfig { enabled, indexing_enabled })
+		Ok(OffchainWorkerConfig {
+			enabled,
+			indexing_enabled,
+		})
 	}
 }

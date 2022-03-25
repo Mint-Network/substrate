@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,30 +19,30 @@
 pub mod testing;
 pub mod vrf;
 
-use crate::vrf::{VRFSignature, VRFTranscriptData};
+use std::sync::Arc;
 use async_trait::async_trait;
 use futures::{executor::block_on, future::join_all};
 use sp_core::{
-	crypto::{CryptoTypePublicPair, KeyTypeId},
-	ecdsa, ed25519, sr25519,
+	crypto::{KeyTypeId, CryptoTypePublicPair},
+	ed25519, sr25519, ecdsa,
 };
-use std::sync::Arc;
+use crate::vrf::{VRFTranscriptData, VRFSignature};
 
 /// CryptoStore error
 #[derive(Debug, derive_more::Display)]
 pub enum Error {
 	/// Public key type is not supported
-	#[display(fmt = "Key not supported: {:?}", _0)]
+	#[display(fmt="Key not supported: {:?}", _0)]
 	KeyNotSupported(KeyTypeId),
 	/// Validation error
-	#[display(fmt = "Validation error: {}", _0)]
+	#[display(fmt="Validation error: {}", _0)]
 	ValidationError(String),
 	/// Keystore unavailable
-	#[display(fmt = "Keystore unavailable")]
+	#[display(fmt="Keystore unavailable")]
 	Unavailable,
 	/// Programming errors
-	#[display(fmt = "An unknown keystore error occurred: {}", _0)]
-	Other(String),
+	#[display(fmt="An unknown keystore error occurred: {}", _0)]
+	Other(String)
 }
 
 /// Something that generates, stores and provides access to keys.
@@ -91,7 +91,12 @@ pub trait CryptoStore: Send + Sync {
 	/// Places it into the file system store.
 	///
 	/// `Err` if there's some sort of weird filesystem error, but should generally be `Ok`.
-	async fn insert_unknown(&self, id: KeyTypeId, suri: &str, public: &[u8]) -> Result<(), ()>;
+	async fn insert_unknown(
+		&self,
+		id: KeyTypeId,
+		suri: &str,
+		public: &[u8]
+	) -> Result<(), ()>;
 
 	/// Find intersection between provided keys and supported keys
 	///
@@ -100,7 +105,7 @@ pub trait CryptoStore: Send + Sync {
 	async fn supported_keys(
 		&self,
 		id: KeyTypeId,
-		keys: Vec<CryptoTypePublicPair>,
+		keys: Vec<CryptoTypePublicPair>
 	) -> Result<Vec<CryptoTypePublicPair>, Error>;
 	/// List all supported keys
 	///
@@ -137,14 +142,14 @@ pub trait CryptoStore: Send + Sync {
 		&self,
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>,
-		msg: &[u8],
+		msg: &[u8]
 	) -> Result<Option<(CryptoTypePublicPair, Vec<u8>)>, Error> {
 		if keys.len() == 1 {
-			return Ok(self.sign_with(id, &keys[0], msg).await?.map(|s| (keys[0].clone(), s)))
+			return Ok(self.sign_with(id, &keys[0], msg).await?.map(|s| (keys[0].clone(), s)));
 		} else {
 			for k in self.supported_keys(id, keys).await? {
 				if let Ok(Some(sign)) = self.sign_with(id, &k, msg).await {
-					return Ok(Some((k, sign)))
+					return Ok(Some((k, sign)));
 				}
 			}
 		}
@@ -165,7 +170,8 @@ pub trait CryptoStore: Send + Sync {
 		keys: Vec<CryptoTypePublicPair>,
 		msg: &[u8],
 	) -> Result<Vec<Result<Option<Vec<u8>>, Error>>, ()> {
-		let futs = keys.iter().map(|k| self.sign_with(id, k, msg));
+		let futs = keys.iter()
+			.map(|k| self.sign_with(id, k, msg));
 
 		Ok(join_all(futs).await)
 	}
@@ -189,18 +195,13 @@ pub trait CryptoStore: Send + Sync {
 		transcript_data: VRFTranscriptData,
 	) -> Result<Option<VRFSignature>, Error>;
 
-	/// Generate an ECDSA signature for a given pre-hashed message.
+	/// Sign pre-hashed
 	///
-	/// Receives [`KeyTypeId`] and an [`ecdsa::Public`] key to be able to map
-	/// them to a private key that exists in the keystore. This private key is,
-	/// in turn, used for signing the provided pre-hashed message.
+	/// Signs a pre-hashed message with the private key that matches
+	/// the ECDSA public key passed.
 	///
-	/// The `msg` argument provided should be a hashed message for which an
-	/// ECDSA signature should be generated.
-	///
-	/// Returns an [`ecdsa::Signature`] or `None` in case the given `id` and
-	/// `public` combination doesn't exist in the keystore. An `Err` will be
-	/// returned if generating the signature itself failed.
+	/// Returns the SCALE encoded signature if key is found and supported,
+	/// `None` if the key doesn't exist or an error when something failed.
 	async fn ecdsa_sign_prehashed(
 		&self,
 		id: KeyTypeId,
@@ -254,8 +255,11 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 	/// If the given seed is `Some(_)`, the key pair will only be stored in memory.
 	///
 	/// Returns the public key of the generated key pair.
-	fn ecdsa_generate_new(&self, id: KeyTypeId, seed: Option<&str>)
-		-> Result<ecdsa::Public, Error>;
+	fn ecdsa_generate_new(
+		&self,
+		id: KeyTypeId,
+		seed: Option<&str>,
+	) -> Result<ecdsa::Public, Error>;
 
 	/// Insert a new key. This doesn't require any known of the crypto; but a public key must be
 	/// manually provided.
@@ -272,7 +276,7 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 	fn supported_keys(
 		&self,
 		id: KeyTypeId,
-		keys: Vec<CryptoTypePublicPair>,
+		keys: Vec<CryptoTypePublicPair>
 	) -> Result<Vec<CryptoTypePublicPair>, Error>;
 
 	/// List all supported keys
@@ -312,16 +316,16 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 		&self,
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>,
-		msg: &[u8],
+		msg: &[u8]
 	) -> Result<Option<(CryptoTypePublicPair, Vec<u8>)>, Error> {
 		if keys.len() == 1 {
 			return Ok(
-				SyncCryptoStore::sign_with(self, id, &keys[0], msg)?.map(|s| (keys[0].clone(), s))
+				SyncCryptoStore::sign_with(self, id, &keys[0], msg)?.map(|s| (keys[0].clone(), s)),
 			)
 		} else {
 			for k in SyncCryptoStore::supported_keys(self, id, keys)? {
 				if let Ok(Some(sign)) = SyncCryptoStore::sign_with(self, id, &k, msg) {
-					return Ok(Some((k, sign)))
+					return Ok(Some((k, sign)));
 				}
 			}
 		}
@@ -364,18 +368,13 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 		transcript_data: VRFTranscriptData,
 	) -> Result<Option<VRFSignature>, Error>;
 
-	/// Generate an ECDSA signature for a given pre-hashed message.
+	/// Sign pre-hashed
 	///
-	/// Receives [`KeyTypeId`] and an [`ecdsa::Public`] key to be able to map
-	/// them to a private key that exists in the keystore. This private key is,
-	/// in turn, used for signing the provided pre-hashed message.
+	/// Signs a pre-hashed message with the private key that matches
+	/// the ECDSA public key passed.
 	///
-	/// The `msg` argument provided should be a hashed message for which an
-	/// ECDSA signature should be generated.
-	///
-	/// Returns an [`ecdsa::Signature`] or `None` in case the given `id` and
-	/// `public` combination doesn't exist in the keystore. An `Err` will be
-	/// returned if generating the signature itself failed.
+	/// Returns the SCALE encoded signature if key is found and supported,
+	/// `None` if the key doesn't exist or an error when something failed.
 	fn ecdsa_sign_prehashed(
 		&self,
 		id: KeyTypeId,

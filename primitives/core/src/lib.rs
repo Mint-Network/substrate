@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 //! Shareable Substrate types.
 
 #![warn(missing_docs)]
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 /// Initialize a key-value collection from array.
@@ -31,17 +32,17 @@ macro_rules! map {
 	);
 }
 
-#[doc(hidden)]
-pub use codec::{Decode, Encode};
-use scale_info::TypeInfo;
-#[cfg(feature = "std")]
-pub use serde;
-#[cfg(feature = "std")]
-use serde::{Deserialize, Serialize};
 use sp_runtime_interface::pass_by::{PassByEnum, PassByInner};
-use sp_std::{ops::Deref, prelude::*};
+use sp_std::prelude::*;
+use sp_std::ops::Deref;
 #[cfg(feature = "std")]
 use std::borrow::Cow;
+#[cfg(feature = "std")]
+use serde::{Serialize, Deserialize};
+#[cfg(feature = "std")]
+pub use serde;
+#[doc(hidden)]
+pub use codec::{Encode, Decode};
 
 pub use sp_debug_derive::RuntimeDebug;
 
@@ -52,37 +53,37 @@ pub use impl_serde::serialize as bytes;
 pub mod hashing;
 
 #[cfg(feature = "full_crypto")]
-pub use hashing::{blake2_128, blake2_256, keccak_256, twox_128, twox_256, twox_64};
-pub mod crypto;
+pub use hashing::{blake2_128, blake2_256, twox_64, twox_128, twox_256, keccak_256};
 pub mod hexdisplay;
+pub mod crypto;
 
 pub mod u32_trait;
 
-pub mod ecdsa;
 pub mod ed25519;
+pub mod sr25519;
+pub mod ecdsa;
 pub mod hash;
 #[cfg(feature = "std")]
 mod hasher;
 pub mod offchain;
 pub mod sandbox;
-pub mod sr25519;
-pub mod testing;
+pub mod uint;
+mod changes_trie;
 #[cfg(feature = "std")]
 pub mod traits;
-pub mod uint;
+pub mod testing;
 
-pub use self::{
-	hash::{convert_hash, H160, H256, H512},
-	uint::{U256, U512},
-};
+pub use self::hash::{H160, H256, H512, convert_hash};
+pub use self::uint::{U256, U512};
+pub use changes_trie::{ChangesTrieConfiguration, ChangesTrieConfigurationRange};
 #[cfg(feature = "full_crypto")]
-pub use crypto::{ByteArray, DeriveJunction, Pair, Public};
+pub use crypto::{DeriveJunction, Pair, Public};
 
+pub use hash_db::Hasher;
 #[cfg(feature = "std")]
 pub use self::hasher::blake2::Blake2Hasher;
 #[cfg(feature = "std")]
 pub use self::hasher::keccak::KeccakHasher;
-pub use hash_db::Hasher;
 
 pub use sp_storage as storage;
 
@@ -116,13 +117,14 @@ impl ExecutionContext {
 		use ExecutionContext::*;
 
 		match self {
-			Importing | Syncing | BlockConstruction => offchain::Capabilities::empty(),
-			// Enable keystore, transaction pool and Offchain DB reads by default for offchain
-			// calls.
-			OffchainCall(None) =>
-				offchain::Capabilities::KEYSTORE |
-					offchain::Capabilities::OFFCHAIN_DB_READ |
-					offchain::Capabilities::TRANSACTION_POOL,
+			Importing | Syncing | BlockConstruction =>
+				offchain::Capabilities::none(),
+			// Enable keystore, transaction pool and Offchain DB reads by default for offchain calls.
+			OffchainCall(None) => [
+				offchain::Capability::Keystore,
+				offchain::Capability::OffchainDbRead,
+				offchain::Capability::TransactionPool,
+			][..].into(),
 			OffchainCall(Some((_, capabilities))) => *capabilities,
 		}
 	}
@@ -131,25 +133,19 @@ impl ExecutionContext {
 /// Hex-serialized shim for `Vec<u8>`.
 #[derive(PartialEq, Eq, Clone, RuntimeDebug)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, Hash, PartialOrd, Ord))]
-pub struct Bytes(#[cfg_attr(feature = "std", serde(with = "bytes"))] pub Vec<u8>);
+pub struct Bytes(#[cfg_attr(feature = "std", serde(with="bytes"))] pub Vec<u8>);
 
 impl From<Vec<u8>> for Bytes {
-	fn from(s: Vec<u8>) -> Self {
-		Bytes(s)
-	}
+	fn from(s: Vec<u8>) -> Self { Bytes(s) }
 }
 
 impl From<OpaqueMetadata> for Bytes {
-	fn from(s: OpaqueMetadata) -> Self {
-		Bytes(s.0)
-	}
+	fn from(s: OpaqueMetadata) -> Self { Bytes(s.0) }
 }
 
 impl Deref for Bytes {
 	type Target = [u8];
-	fn deref(&self) -> &[u8] {
-		&self.0[..]
-	}
+	fn deref(&self) -> &[u8] { &self.0[..] }
 }
 
 impl codec::WrapperTypeEncode for Bytes {}
@@ -187,19 +183,7 @@ impl sp_std::ops::Deref for OpaqueMetadata {
 }
 
 /// Simple blob to hold a `PeerId` without committing to its format.
-#[derive(
-	Default,
-	Clone,
-	Eq,
-	PartialEq,
-	Ord,
-	PartialOrd,
-	Encode,
-	Decode,
-	RuntimeDebug,
-	PassByInner,
-	TypeInfo,
-)]
+#[derive(Default, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, PassByInner)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct OpaquePeerId(pub Vec<u8>);
 
@@ -216,7 +200,7 @@ pub enum NativeOrEncoded<R> {
 	/// The native representation.
 	Native(R),
 	/// The encoded representation.
-	Encoded(Vec<u8>),
+	Encoded(Vec<u8>)
 }
 
 #[cfg(feature = "std")]
@@ -352,7 +336,7 @@ impl From<LogLevel> for log::Level {
 
 /// Log level filter that expresses which log levels should be filtered.
 ///
-/// This enum matches the [`log::LevelFilter`] enum.
+/// This enum matches the [`log::LogLevelFilter`] enum.
 #[derive(Encode, Decode, PassByEnum, Copy, Clone)]
 pub enum LogLevelFilter {
 	/// `Off` log level filter.
@@ -421,7 +405,7 @@ pub fn to_substrate_wasm_fn_return_value(value: &impl Encode) -> u64 {
 
 /// The void type - it cannot exist.
 // Oh rust, you crack me up...
-#[derive(Clone, Decode, Encode, Eq, PartialEq, RuntimeDebug, TypeInfo)]
+#[derive(Clone, Decode, Encode, Eq, PartialEq, RuntimeDebug)]
 pub enum Void {}
 
 /// Macro for creating `Maybe*` marker traits.
@@ -463,8 +447,3 @@ macro_rules! impl_maybe_marker {
 		)+
 	}
 }
-
-/// The maximum number of bytes that can be allocated at one time.
-// The maximum possible allocation size was chosen rather arbitrary, 32 MiB should be enough for
-// everybody.
-pub const MAX_POSSIBLE_ALLOCATION: u32 = 33554432; // 2^25 bytes, 32 MiB
