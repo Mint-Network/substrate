@@ -669,7 +669,7 @@ pub mod migrations {
 
 	#[allow(dead_code)]
 	/// Migrate from unique `u32` reference counting to triple `u32` reference counting.
-	pub fn migrate_for_edgeware<T: Config>() -> frame_support::weights::Weight {
+	pub fn migrate_for_codex<T: Config>() -> frame_support::weights::Weight {
 		Account::<T>::translate::<(T::Index, RefCount, T::AccountData), _>(|_key, (nonce, consumers, data)|
 			Some(AccountInfo { nonce, consumers, providers: 1, sufficients: 0, data })
 		);
