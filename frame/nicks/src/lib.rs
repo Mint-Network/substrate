@@ -35,27 +35,29 @@
 //!   taken.
 //! * `clear_name` - Remove an account's associated name; the deposit is returned.
 //! * `kill_name` - Forcibly remove the associated name; the deposit is lost.
-//!
-//! [`Call`]: ./enum.Call.html
-//! [`Config`]: ./trait.Config.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use sp_std::prelude::*;
-use sp_runtime::{
-	traits::{StaticLookup, Zero}
-};
-use frame_support::traits::{Currency, ReservableCurrency, OnUnbalanced};
+use frame_support::traits::{Currency, OnUnbalanced, ReservableCurrency};
 pub use pallet::*;
+use sp_runtime::traits::{StaticLookup, Zero};
+use sp_std::prelude::*;
 
-type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
+type BalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<
+	<T as frame_system::Config>::AccountId,
+>>::NegativeImbalance;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_system::{ensure_signed, pallet_prelude::*};
-	use frame_support::{ensure, pallet_prelude::*, traits::{EnsureOrigin, Get}};
 	use super::*;
+	use frame_support::{
+		ensure,
+		pallet_prelude::*,
+		traits::{EnsureOrigin, Get},
+	};
+	use frame_system::{ensure_signed, pallet_prelude::*};
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -86,7 +88,6 @@ pub mod pallet {
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	#[pallet::metadata(T::AccountId = "AccountId", BalanceOf<T> = "Balance")]
 	pub enum Event<T: Config> {
 		/// A name was set. \[who\]
 		NameSet(T::AccountId),
@@ -113,14 +114,12 @@ pub mod pallet {
 
 	/// The lookup table for names.
 	#[pallet::storage]
-	pub(super) type NameOf<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, (Vec<u8>, BalanceOf<T>)>;
+	pub(super) type NameOf<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, (Vec<u8>, BalanceOf<T>)>;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
-
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -141,7 +140,7 @@ pub mod pallet {
 		/// - One event.
 		/// # </weight>
 		#[pallet::weight(50_000_000)]
-		pub(super) fn set_name(origin: OriginFor<T>, name: Vec<u8>) -> DispatchResult {
+		pub fn set_name(origin: OriginFor<T>, name: Vec<u8>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			ensure!(name.len() >= T::MinLength::get() as usize, Error::<T>::TooShort);
@@ -172,7 +171,7 @@ pub mod pallet {
 		/// - One event.
 		/// # </weight>
 		#[pallet::weight(70_000_000)]
-		pub(super) fn clear_name(origin: OriginFor<T>) -> DispatchResult {
+		pub fn clear_name(origin: OriginFor<T>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let deposit = <NameOf<T>>::take(&sender).ok_or(Error::<T>::Unnamed)?.1;
@@ -198,9 +197,9 @@ pub mod pallet {
 		/// - One event.
 		/// # </weight>
 		#[pallet::weight(70_000_000)]
-		pub(super) fn kill_name(
+		pub fn kill_name(
 			origin: OriginFor<T>,
-			target: <T::Lookup as StaticLookup>::Source
+			target: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResult {
 			T::ForceOrigin::ensure_origin(origin)?;
 
@@ -228,10 +227,10 @@ pub mod pallet {
 		/// - One event.
 		/// # </weight>
 		#[pallet::weight(70_000_000)]
-		pub(super) fn force_name(
+		pub fn force_name(
 			origin: OriginFor<T>,
 			target: <T::Lookup as StaticLookup>::Source,
-			name: Vec<u8>
+			name: Vec<u8>,
 		) -> DispatchResult {
 			T::ForceOrigin::ensure_origin(origin)?;
 
@@ -250,11 +249,12 @@ mod tests {
 	use super::*;
 	use crate as pallet_nicks;
 
-	use frame_support::{assert_ok, assert_noop, parameter_types, ord_parameter_types};
-	use sp_core::H256;
+	use frame_support::{assert_noop, assert_ok, ord_parameter_types, parameter_types};
 	use frame_system::EnsureSignedBy;
+	use sp_core::H256;
 	use sp_runtime::{
-		testing::Header, traits::{BlakeTwo256, IdentityLookup, BadOrigin},
+		testing::Header,
+		traits::{BadOrigin, BlakeTwo256, IdentityLookup},
 	};
 
 	type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
@@ -278,7 +278,7 @@ mod tests {
 			frame_system::limits::BlockWeights::simple_max(1024);
 	}
 	impl frame_system::Config for Test {
-		type BaseCallFilter = ();
+		type BaseCallFilter = frame_support::traits::Everything;
 		type BlockWeights = ();
 		type BlockLength = ();
 		type DbWeight = ();
@@ -307,6 +307,8 @@ mod tests {
 	}
 	impl pallet_balances::Config for Test {
 		type MaxLocks = ();
+		type MaxReserves = ();
+		type ReserveIdentifier = [u8; 8];
 		type Balance = u64;
 		type Event = Event;
 		type DustRemoval = ();
@@ -334,12 +336,9 @@ mod tests {
 
 	fn new_test_ext() -> sp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-		pallet_balances::GenesisConfig::<Test> {
-			balances: vec![
-				(1, 10),
-				(2, 10),
-			],
-		}.assimilate_storage(&mut t).unwrap();
+		pallet_balances::GenesisConfig::<Test> { balances: vec![(1, 10), (2, 10)] }
+			.assimilate_storage(&mut t)
+			.unwrap();
 		t.into()
 	}
 
@@ -399,7 +398,10 @@ mod tests {
 				pallet_balances::Error::<Test, _>::InsufficientBalance
 			);
 
-			assert_noop!(Nicks::set_name(Origin::signed(1), b"Ga".to_vec()), Error::<Test>::TooShort);
+			assert_noop!(
+				Nicks::set_name(Origin::signed(1), b"Ga".to_vec()),
+				Error::<Test>::TooShort
+			);
 			assert_noop!(
 				Nicks::set_name(Origin::signed(1), b"Gavin James Wood, Esquire".to_vec()),
 				Error::<Test>::TooLong

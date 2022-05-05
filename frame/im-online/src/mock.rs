@@ -24,9 +24,11 @@ use std::cell::RefCell;
 use frame_support::{parameter_types, weights::Weight};
 use pallet_session::historical as pallet_session_historical;
 use sp_core::H256;
-use sp_runtime::testing::{Header, TestXt, UintAuthorityId};
-use sp_runtime::traits::{BlakeTwo256, ConvertInto, IdentityLookup};
-use sp_runtime::{Perbill, Percent};
+use sp_runtime::{
+	testing::{Header, TestXt, UintAuthorityId},
+	traits::{BlakeTwo256, ConvertInto, IdentityLookup},
+	Permill,
+};
 use sp_staking::{
 	offence::{OffenceError, ReportOffence},
 	SessionIndex,
@@ -70,13 +72,11 @@ impl pallet_session::SessionManager<u64> for TestSessionManager {
 
 impl pallet_session::historical::SessionManager<u64, u64> for TestSessionManager {
 	fn new_session(_new_index: SessionIndex) -> Option<Vec<(u64, u64)>> {
-		VALIDATORS.with(|l| l
-			.borrow_mut()
-			.take()
-			.map(|validators| {
-				validators.iter().map(|v| (*v, *v)).collect()
-			})
-		)
+		VALIDATORS.with(|l| {
+			l.borrow_mut()
+				.take()
+				.map(|validators| validators.iter().map(|v| (*v, *v)).collect())
+		})
 	}
 	fn end_session(_: SessionIndex) {}
 	fn start_session(_: SessionIndex) {}
@@ -105,9 +105,7 @@ impl ReportOffence<u64, IdentificationTuple, Offence> for OffenceHandler {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let t = frame_system::GenesisConfig::default()
-		.build_storage::<Runtime>()
-		.unwrap();
+	let t = frame_system::GenesisConfig::default().build_storage::<Runtime>().unwrap();
 	t.into()
 }
 
@@ -118,7 +116,7 @@ parameter_types! {
 }
 
 impl frame_system::Config for Runtime {
-	type BaseCallFilter = ();
+	type BaseCallFilter = frame_support::traits::Everything;
 	type BlockWeights = ();
 	type BlockLength = ();
 	type DbWeight = ();
@@ -148,19 +146,15 @@ parameter_types! {
 	pub const Offset: u64 = 0;
 }
 
-parameter_types! {
-	pub const DisabledValidatorsThreshold: Perbill = Perbill::from_percent(33);
-}
-
 impl pallet_session::Config for Runtime {
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, TestSessionManager>;
-	type SessionHandler = (ImOnline, );
+	type SessionManager =
+		pallet_session::historical::NoteHistoricalRoot<Runtime, TestSessionManager>;
+	type SessionHandler = (ImOnline,);
 	type ValidatorId = u64;
 	type ValidatorIdOf = ConvertInto;
 	type Keys = UintAuthorityId;
 	type Event = Event;
-	type DisabledValidatorsThreshold = DisabledValidatorsThreshold;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
 	type WeightInfo = ();
 }
@@ -182,7 +176,7 @@ impl pallet_authorship::Config for Runtime {
 }
 
 thread_local! {
-	pub static MOCK_CURRENT_SESSION_PROGRESS: RefCell<Option<Option<Percent>>> = RefCell::new(None);
+	pub static MOCK_CURRENT_SESSION_PROGRESS: RefCell<Option<Option<Permill>>> = RefCell::new(None);
 }
 
 thread_local! {
@@ -199,7 +193,7 @@ impl frame_support::traits::EstimateNextSessionRotation<u64> for TestNextSession
 		mock.unwrap_or(pallet_session::PeriodicSessions::<Period, Offset>::average_session_length())
 	}
 
-	fn estimate_current_session_progress(now: u64) -> (Option<Percent>, Weight) {
+	fn estimate_current_session_progress(now: u64) -> (Option<Permill>, Weight) {
 		let (estimate, weight) =
 			pallet_session::PeriodicSessions::<Period, Offset>::estimate_current_session_progress(
 				now,
@@ -218,6 +212,9 @@ impl frame_support::traits::EstimateNextSessionRotation<u64> for TestNextSession
 
 parameter_types! {
 	pub const UnsignedPriority: u64 = 1 << 20;
+	pub const MaxKeys: u32 = 10_000;
+	pub const MaxPeerInHeartbeats: u32 = 10_000;
+	pub const MaxPeerDataEncodingSize: u32 = 1_000;
 }
 
 impl Config for Runtime {
@@ -228,9 +225,13 @@ impl Config for Runtime {
 	type ReportUnresponsiveness = OffenceHandler;
 	type UnsignedPriority = UnsignedPriority;
 	type WeightInfo = ();
+	type MaxKeys = MaxKeys;
+	type MaxPeerInHeartbeats = MaxPeerInHeartbeats;
+	type MaxPeerDataEncodingSize = MaxPeerDataEncodingSize;
 }
 
-impl<LocalCall> frame_system::offchain::SendTransactionTypes<LocalCall> for Runtime where
+impl<LocalCall> frame_system::offchain::SendTransactionTypes<LocalCall> for Runtime
+where
 	Call: From<LocalCall>,
 {
 	type OverarchingCall = Call;
